@@ -761,8 +761,9 @@ def build_batch_zip_bytes(excel_bytes, nyquist_pngs, bode_pngs, summary_pngs, ba
 # --- 1) Single-file review ---
 st.header("1) Single-file review")
 uploaded_file = st.file_uploader("xlsx 파일 업로드 (single)", type=["xlsx"], key="single_uploader")
-file_token = f"{uploaded_file.name}_{uploaded_file.size}"
+
 if uploaded_file is not None:
+    file_token = f"{uploaded_file.name}_{uploaded_file.size}"
     try:
         sheet_name, df_eis, freq, zexp = read_eis_from_uploaded(uploaded_file)
         sam_guess, substrate_guess, conc_guess = parse_metadata_from_filename(uploaded_file.name)
