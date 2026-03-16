@@ -801,7 +801,11 @@ if uploaded_file is not None:
         outlier_state_key = f"{uploaded_file.name}_{sam_type}_excluded_idx_single"
         if outlier_state_key not in st.session_state:
             st.session_state[outlier_state_key] = []
-
+            
+        widget_ver_key = f"{uploaded_file.name}_{sam_type}_widget_ver"
+        if widget_ver_key not in st.session_state:
+            st.session_state[widget_ver_key] = 0
+            
         # 인터랙티브 아웃라이어 선택용 데이터프레임
         with st.expander("Outlier 제외 설정", expanded=False):
             st.caption("아래 인덱스를 선택하면 Auto Fit에서 제외됩니다. Nyquist에서 주황색 X와 번호로 표시됩니다.")
@@ -839,7 +843,7 @@ if uploaded_file is not None:
                         max_value=1.0,
                         value=float(st.session_state[state_key]),
                         step=0.01,
-                        key=f"s_{state_key}"
+                        key=f"s_{state_key}_v{st.session_state[widget_ver_key]}"
                     )
                     st.session_state[state_key] = float(slider_val)
                 else:
@@ -852,7 +856,7 @@ if uploaded_file is not None:
                         max_value=e_hi,
                         value=float(np.clip(curr_log, e_lo, e_hi)),
                         step=0.1,
-                        key=f"s_{state_key}"
+                        key=f"s_{state_key}_v{st.session_state[widget_ver_key]}"
                     )
                     st.session_state[state_key] = float(10 ** slider_val)
 
@@ -860,7 +864,7 @@ if uploaded_file is not None:
                     f"{name} input",
                     value=float(st.session_state[state_key]),
                     format="%.6e" if not is_p else "%.4f",
-                    key=f"i_{state_key}"
+                    key=f"i_{state_key}_v{st.session_state[widget_ver_key]}"
                 )
                 st.session_state[state_key] = float(input_val)
                 current_params.append(float(input_val))
@@ -873,21 +877,32 @@ if uploaded_file is not None:
                     st.rerun()
 
             with c2:
+                    
                 if st.button("Auto Fit 실행", use_container_width=True, type="primary"):
-                    excluded_idx = st.session_state.get(outlier_state_key, [])
-                    p_fitted, _, _, _, _ = fit_eis(
-                        freq, zexp, sam_type, current_params, exclude_indices=excluded_idx
-                    )
+                     excluded_idx = st.session_state.get(outlier_state_key, [])
+                     p_fitted, _, _, _, _ = fit_eis(
+                          freq, zexp, sam_type, current_params, exclude_indices=excluded_idx
+                     )
 
-                    fitted_list = [float(p_fitted[n]) for n in names]
+                     fitted_list = [float(p_fitted[n]) for n in names]
 
-                    for name, val in zip(names, fitted_list):
-                        state_key = f"{uploaded_file.name}_{sam_type}_{name}_val"
-                        st.session_state[state_key] = float(val)
+                     for name, val in zip(names, fitted_list):
+                         state_key = f"{uploaded_file.name}_{sam_type}_{name}_val"
+                         st.session_state[state_key] = float(val)
 
-                    st.session_state[fit_state_key] = fitted_list
-                    st.rerun()
+                     st.session_state[fit_state_key] = fitted_list
 
+                # 최초 1회에 한해 manual 입력칸/슬라이더를 새 값으로 재생성
+                     auto_applied_key = f"{uploaded_file.name}_{sam_type}_autofit_applied_once"
+                     if auto_applied_key not in st.session_state:
+                         st.session_state[auto_applied_key] = False
+
+                     if not st.session_state[auto_applied_key]:
+                         st.session_state[widget_ver_key] += 1
+                         st.session_state[auto_applied_key] = True
+
+                     st.rerun()
+                
             if st.button("현재 결과를 Batch Queue에 추가", use_container_width=True):
                 excluded_idx = st.session_state.get(outlier_state_key, [])
                 active_params = st.session_state[fit_state_key]
