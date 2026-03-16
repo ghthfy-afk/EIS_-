@@ -406,6 +406,7 @@ def make_bode_figure(freq, zexp, zfit, title="Bode Plot"):
 def make_summary_plot(df_sum, sam_type, substrate, x_log=False):
     sam_type = normalize_sam_name(sam_type)
     plot_df = df_sum[(df_sum["SAM_INTERNAL"] == sam_type) & (df_sum["Substrate"] == substrate)].copy()
+    plot_df = plot_df.sort_values(by="Concentration_mM").reset_index(drop=True)
     if plot_df.empty:
         return None
 
@@ -414,7 +415,7 @@ def make_summary_plot(df_sum, sam_type, substrate, x_log=False):
 
     fig, ax1 = plt.subplots(figsize=(12, 7))
     ax1.set_xlabel("Concentration (mM)", fontsize=12, fontweight="bold")
-    ax1.set_ylabel(r"Normalized Total R Index ($\Omega \cdot cm^2$)", fontsize=12, fontweight="bold")
+    ax1.set_ylabel("Normalized Total R Index (Ohm·cm²)", fontsize=12, fontweight="bold")
     ax1.grid(True, which="both", linestyle="--", alpha=0.5)
 
     if x_log:
@@ -553,7 +554,7 @@ def make_batch_nyquist_panel_from_queue(queue_items, sam_type, substrate):
             markersize=5,
             alpha=0.5,
             linestyle="none",
-            label=f"{conc} mM"
+            label=f"{float(conc):g} mM"
         )
 
         line_color = p[0].get_color()
@@ -760,7 +761,7 @@ def build_batch_zip_bytes(excel_bytes, nyquist_pngs, bode_pngs, summary_pngs, ba
 # --- 1) Single-file review ---
 st.header("1) Single-file review")
 uploaded_file = st.file_uploader("xlsx 파일 업로드 (single)", type=["xlsx"], key="single_uploader")
-
+file_token = f"{uploaded_file.name}_{uploaded_file.size}"
 if uploaded_file is not None:
     try:
         sheet_name, df_eis, freq, zexp = read_eis_from_uploaded(uploaded_file)
@@ -771,15 +772,40 @@ if uploaded_file is not None:
 
         col_meta1, col_meta2, col_meta3, col_meta4 = st.columns(4)
         with col_meta1:
-            sam_display = st.selectbox("SAM", sam_display_options, index=default_idx, key="single_sam")
+            sam_display = st.selectbox(
+                "SAM",
+                sam_display_options,
+                index=default_idx,
+                key=f"{file_token}_single_sam"
+            )
             sam_type = normalize_sam_name(sam_display)
-        with col_meta2:
-            substrate = st.selectbox("Substrate", ["CU", "CO"], index=0 if substrate_guess != "CO" else 1, key="single_sub")
-        with col_meta3:
-            concentration = st.number_input("Concentration (mM)", min_value=0.0, value=float(conc_guess) if conc_guess is not None else 0.0, step=0.1, key="single_conc")
-        with col_meta4:
-            area_cm2 = st.number_input("Area (cm²)", min_value=1e-9, value=0.14, step=0.01, format="%.4f", key="single_area")
 
+        with col_meta2:
+            substrate = st.selectbox(
+                "Substrate",
+                ["CU", "CO"],
+                index=0 if substrate_guess != "CO" else 1,
+                key=f"{file_token}_single_sub"
+            )
+
+        with col_meta3:
+            concentration = st.number_input(
+                "Concentration (mM)",
+                min_value=0.0,
+                value=float(conc_guess) if conc_guess is not None else 0.0,
+                step=0.1,
+                key=f"{file_token}_single_conc"
+            )
+
+        with col_meta4:
+            area_cm2 = st.number_input(
+                "Area (cm²)",
+                min_value=1e-9,
+                value=0.14,
+                step=0.01,
+                format="%.4f",
+                key=f"{file_token}_single_area"
+            )
         st.write(f"사용 시트: {sheet_name}")
         st.write(f"총 포인트 수: {len(freq)}")
 
@@ -788,21 +814,21 @@ if uploaded_file is not None:
 
         # 파라미터 상태 초기화
         for name, dft in zip(names, default_guess):
-            state_key = f"{uploaded_file.name}_{sam_type}_{name}_val"
+            state_key = f"{file_token}_{sam_type}_{name}_val"
             if state_key not in st.session_state:
                 st.session_state[state_key] = float(dft)
 
         # 현재 표시용 fit 상태 저장
-        fit_state_key = f"{uploaded_file.name}_{sam_type}_current_fit_params"
+        fit_state_key = f"{file_token}_{sam_type}_current_fit_params"
         if fit_state_key not in st.session_state:
             st.session_state[fit_state_key] = default_guess.astype(float).tolist()
 
         # 아웃라이어 상태
-        outlier_state_key = f"{uploaded_file.name}_{sam_type}_excluded_idx_single"
+        outlier_state_key = f"{file_token}_{sam_type}_excluded_idx_single"
         if outlier_state_key not in st.session_state:
             st.session_state[outlier_state_key] = []
             
-        widget_ver_key = f"{uploaded_file.name}_{sam_type}_widget_ver"
+        widget_ver_key = f"{file_token}_{sam_type}_widget_ver"
         if widget_ver_key not in st.session_state:
             st.session_state[widget_ver_key] = 0
             
@@ -833,7 +859,7 @@ if uploaded_file is not None:
 
             current_params = []
             for name, lo, hi in zip(names, lb, ub):
-                state_key = f"{uploaded_file.name}_{sam_type}_{name}_val"
+                state_key = f"{file_token}_{sam_type}_{name}_val"
                 is_p = "_P" in name
 
                 if is_p:
@@ -887,13 +913,13 @@ if uploaded_file is not None:
                      fitted_list = [float(p_fitted[n]) for n in names]
 
                      for name, val in zip(names, fitted_list):
-                         state_key = f"{uploaded_file.name}_{sam_type}_{name}_val"
+                         state_key = f"{file_token}_{sam_type}_{name}_val"
                          st.session_state[state_key] = float(val)
 
                      st.session_state[fit_state_key] = fitted_list
 
                 # 최초 1회에 한해 manual 입력칸/슬라이더를 새 값으로 재생성
-                     auto_applied_key = f"{uploaded_file.name}_{sam_type}_autofit_applied_once"
+                     auto_applied_key = f"{file_token}_{sam_type}_autofit_applied_once"
                      if auto_applied_key not in st.session_state:
                          st.session_state[auto_applied_key] = False
 
@@ -1033,6 +1059,7 @@ if not queue_items:
 else:
     queue_preview = pd.DataFrame([
         {
+            "Queue_Key": f"{item['Source_File']}|{item['SAM']}|{item['Substrate']}|{item['Concentration_mM']}",
             "Source_File": item["Source_File"],
             "SAM": item["SAM_DISPLAY"],
             "Substrate": item["Substrate"],
@@ -1052,8 +1079,8 @@ else:
 
     with q1:
         remove_name = st.selectbox(
-            "Queue에서 제거할 파일",
-            options=["(선택 안함)"] + [item["Source_File"] for item in queue_items],
+            "Queue에서 제거할 항목",
+            options=["(선택 안함)"] + queue_preview["Queue_Key"].tolist(),
             key="queue_remove_select"
         )
 
@@ -1061,7 +1088,8 @@ else:
         if st.button("선택 파일 Queue에서 제거", use_container_width=True):
             if remove_name != "(선택 안함)":
                 st.session_state["reviewed_batch_items"] = [
-                    item for item in queue_items if item["Source_File"] != remove_name
+                    item for item in queue_items
+                    if f"{item['Source_File']}|{item['SAM']}|{item['Substrate']}|{item['Concentration_mM']}" != remove_name
                 ]
                 st.rerun()
 
