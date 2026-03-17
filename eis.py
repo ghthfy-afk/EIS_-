@@ -367,7 +367,85 @@ def evaluate_current_params(freq, zexp, sam_type, params, exclude_indices=None):
 
     return {k: float(v) for k, v in zip(names, params)}, zfit_full, float(r2), float(rmse)
 
+# =========================================================
+# 5-2. DRT (Distribution of Relaxation Times) 로직
+# =========================================================
+def compute_drt(freq, zexp, reg_param=1e-3, tau_density=2):
+    """
+    Tikhonov 정규화(2차 미분)와 L-BFGS-B(비음수 제약)를 이용한 간이 DRT 추출기
+    """
+    min_f, max_f = np.min(freq), np.max(freq)
+    # 주파수 범위를 조금 넓혀서 tau(시상수) 그리드 생성
+    tau_min = 1.0 / (2 * np.pi * max_f) / 10
+    tau_max = 1.0 / (2 * np.pi * min_f) * 10
+    
+    N_tau = int(len(freq) * tau_density)
+    tau = np.logspace(np.log10(tau_min), np.log10(tau_max), N_tau)
+    omega = 2 * np.pi * freq
 
+    # A 행렬 구성: Z(w) = R_inf + sum( gamma_k / (1 + j w tau_k) )
+    A_re = np.zeros((len(freq), N_tau))
+    A_im = np.zeros((len(freq), N_tau))
+
+    for i, w in enumerate(omega):
+        for k, t in enumerate(tau):
+            den = 1.0 + (w * t)**2
+            A_re[i, k] = 1.0 / den
+            A_im[i, k] = -(w * t) / den
+
+    # R_inf(직렬 저항) 항을 위한 1열 추가
+    A_re_full = np.hstack([np.ones((len(freq), 1)), A_re])
+    A_im_full = np.hstack([np.zeros((len(freq), 1)), A_im])
+
+    A_full = np.vstack([A_re_full, A_im_full])
+    y_full = np.concatenate([zexp.real, zexp.imag])
+
+    # 정규화(Regularization) 행렬 L 구성 (2차 미분 패널티)
+    L = np.zeros((N_tau-2, N_tau))
+    for i in range(N_tau-2):
+        L[i, i] = 1
+        L[i, i+1] = -2
+        L[i, i+2] = 1
+    # R_inf는 정규화에서 제외
+    L_full = np.hstack([np.zeros((N_tau-2, 1)), L])
+
+    # 목적 함수 (잔차 제곱합 + 정규화 항)
+    def objective(x):
+        res = A_full @ x - y_full
+        data_term = np.sum(res**2)
+        reg_term = reg_param * np.sum((L_full @ x)**2)
+        return data_term + reg_term
+
+    # 초기값 및 제약조건 (비음수)
+    x0 = np.ones(N_tau + 1) * 1e-5
+    x0[0] = max(1e-3, np.min(zexp.real))
+    bounds = [(0, None)] * (N_tau + 1)
+
+    # 최적화 수행
+    res = minimize(objective, x0, bounds=bounds, method='L-BFGS-B', options={'maxiter': 5000})
+
+    R_inf = res.x[0]
+    gamma = res.x[1:]
+    
+    # 대응하는 특성 주파수 f = 1 / (2 * pi * tau)
+    f_drt = 1.0 / (2 * np.pi * tau)
+    
+    return f_drt, gamma, R_inf
+
+def make_drt_figure(f_drt, gamma, title="DRT Analysis"):
+    fig, ax = plt.subplots(figsize=(7, 4))
+    ax.semilogx(f_drt, gamma, '-', color='purple', linewidth=2)
+    ax.fill_between(f_drt, gamma, 0, color='purple', alpha=0.2)
+    
+    ax.set_xlabel("Frequency (Hz)")
+    ax.set_ylabel(r"$\gamma(\tau)$ (ohm)")
+    ax.set_title(f"DRT | {title}")
+    ax.grid(True, which="both", alpha=0.3)
+    
+    # 고주파가 왼쪽, 저주파가 오른쪽에 오도록 x축 뒤집기 (Bode plot과 방향 일치)
+    ax.invert_xaxis()
+    fig.tight_layout()
+    return fig
 # =========================================================
 # 6. 시각화 함수
 # =========================================================
@@ -923,7 +1001,8 @@ if uploaded_file:
 
             st.subheader(f"Fit Quality (Live) | R²: {live_r2:.4f}, RMSE: {live_rmse:.2e}")
 
-            t1, t2 = st.tabs(["Nyquist Plot", "Bode Plot"])
+            # ======= 기존 코드 대체/추가 부분 =======
+            t1, t2, t3 = st.tabs(["Nyquist Plot", "Bode Plot", "💡 DRT Analysis"])
 
             with t1:
                 fig1 = make_nyquist_figure(
@@ -939,18 +1018,35 @@ if uploaded_file:
                 fig2 = make_bode_figure(freq, zexp, live_zfit)
                 st.pyplot(fig2, use_container_width=True)
 
-            st.subheader("Current Live Parameters")
-            st.dataframe(
-                pd.DataFrame(live_dict.items(), columns=["Parameter", "Value"]),
-                use_container_width=True,
-                height=350
-            )
+            with t3:
+                st.caption("DRT를 통해 숨겨진 RC 피크(계면의 수)를 확인합니다. 피크가 3개면 B-1 모델, 2개면 C-1 모델에 가깝습니다.")
+                # DRT의 핵심인 정규화 파라미터(lambda) 조절 슬라이더
+                # 너무 작으면 노이즈가 튀고, 너무 크면 피크가 뭉개집니다.
+                reg_lambda = st.select_slider(
+                    "Regularization Parameter (λ)",
+                    options=[1e-5, 1e-4, 5e-4, 1e-3, 5e-3, 1e-2, 1e-1],
+                    value=1e-3,
+                    help="값이 작을수록 데이터에 민감하게 반응(노이즈 피크 발생), 클수록 피크가 부드러워집니다."
+                )
+                
+                # 아웃라이어가 제외된 데이터로 DRT 수행
+                f_fit = freq.copy()
+                z_fit = zexp.copy()
+                if effective_exclude_indices:
+                    mask = np.ones(len(f_fit), dtype=bool)
+                    valid_idx = [i for i in effective_exclude_indices if 0 <= i < len(f_fit)]
+                    mask[valid_idx] = False
+                    f_fit = f_fit[mask]
+                    z_fit = z_fit[mask]
 
-            with st.expander("Loaded EIS Preview"):
-                st.dataframe(df_eis, use_container_width=True)
-
-    except Exception as e:
-        st.error(f"파일 처리 실패: {e}")
+                try:
+                    with st.spinner("DRT 연산 중..."):
+                        f_drt, gamma, r_inf = compute_drt(f_fit, z_fit, reg_param=reg_lambda)
+                        fig3 = make_drt_figure(f_drt, gamma, title=uploaded_file.name)
+                        st.pyplot(fig3, use_container_width=True)
+                except Exception as e:
+                    st.error(f"DRT 계산 실패: {e}")
+            # =======================================
 
 
 # =========================================================
