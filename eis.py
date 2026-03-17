@@ -1028,15 +1028,6 @@ if uploaded_file:
                     value=1e-3,
                     help="값이 작을수록 데이터에 민감하게 반응(노이즈 피크 발생), 클수록 피크가 부드러워집니다."
                 )
-                
-                f_fit = freq.copy()
-                z_fit = zexp.copy()
-                if effective_exclude_indices:
-                    mask = np.ones(len(f_fit), dtype=bool)
-                    valid_idx = [i for i in effective_exclude_indices if 0 <= i < len(f_fit)]
-                    mask[valid_idx] = False
-                    f_fit = f_fit[mask]
-                    z_fit = z_fit[mask]
 
                 try:
                     with st.spinner("DRT 연산 중..."):
@@ -1044,6 +1035,45 @@ if uploaded_file:
                         fig3 = make_drt_figure(f_drt, gamma, title=uploaded_file.name)
                         st.pyplot(fig3, use_container_width=True)
                         plt.close(fig3)
+                        
+                        # ==========================================
+                        # 🌟 추가된 부분: DRT 피크 면적(저항) 적분 계산
+                        # ==========================================
+                        # X축(주파수)이 오름차순이 되도록 정렬 (적분 오류 방지)
+                        sort_idx = np.argsort(f_drt)
+                        f_sorted = f_drt[sort_idx]
+                        gamma_sorted = gamma[sort_idx]
+                        
+                        # 전체 저항(면적) 계산: Integral of gamma w.r.t ln(f)
+                        total_area = np.trapz(gamma_sorted, x=np.log(f_sorted))
+                        
+                        # 결함 의심 대역 (10^-1 ~ 10^2 Hz) 마스킹 및 면적 계산
+                        mask = (f_sorted >= 1e-1) & (f_sorted <= 1e2)
+                        if np.sum(mask) > 1:  # 적분을 위해 점이 2개 이상일 때만 계산
+                            partial_area = np.trapz(gamma_sorted[mask], x=np.log(f_sorted[mask]))
+                        else:
+                            partial_area = 0.0
+                            
+                        # 결과 UI 출력
+                        st.write("---")
+                        st.subheader("📊 DRT 피크 면적 분석 (저항 기여도)")
+                        
+                        col_a1, col_a2, col_a3 = st.columns(3)
+                        col_a1.metric("전체 주파수 면적 (Total R)", f"{total_area:.2f} Ω")
+                        col_a2.metric("10⁻¹ ~ 10² Hz 면적 (Pinhole R)", f"{partial_area:.2f} Ω")
+                        
+                        ratio = (partial_area / total_area * 100) if total_area > 0 else 0
+                        col_a3.metric("결함 대역 비중", f"{ratio:.1f} %")
+                        
+                        # XPS 데이터 기준 판독기
+                        if ratio > 15.0:
+                            st.error("🚨 **위험 (Pinhole/Defect)**: 10⁻¹ ~ 10² Hz 대역의 저항 비중이 매우 높습니다. 방어막에 결함이 발생하여 핀홀을 통한 누설 반응이 지배적입니다.")
+                        elif ratio > 5.0:
+                            st.warning("⚠️ **주의 (Broadening)**: 결함 대역의 비중이 커지고 있습니다. BTA 착물 네트워크가 성글어졌거나 핀홀이 생성되기 시작했을 수 있습니다.")
+                        else:
+                            st.success("✅ **안전 (Intact SAM)**: 10⁻¹ ~ 10² Hz 대역이 깨끗합니다. 방어막이 조밀(Densely packed)하게 잘 형성되었습니다.")
+                        # ==========================================
+                        
                 except Exception as e:
                     st.error(f"DRT 계산 실패: {e}")
             
