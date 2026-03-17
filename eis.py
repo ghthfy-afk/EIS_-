@@ -1047,6 +1047,18 @@ if uploaded_file:
                         plt.close(fig3)
                 except Exception as e:
                     st.error(f"DRT 계산 실패: {e}")
+                st.subheader("Current Live Parameters")
+                st.dataframe(
+                pd.DataFrame(live_dict.items(), columns=["Parameter", "Value"]),
+                use_container_width=True,
+                height=350
+                )
+
+                with st.expander("Loaded EIS Preview"):
+                    st.dataframe(df_eis, use_container_width=True)
+
+        except Exception as e:
+            st.error(f"파일 처리 실패: {e}")
             # =======================================
 
 
