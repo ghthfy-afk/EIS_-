@@ -1045,20 +1045,21 @@ if uploaded_file:
                         fig3 = make_drt_figure(f_drt, gamma, title=uploaded_file.name)
                         st.pyplot(fig3, use_container_width=True)
                         plt.close(fig3)
-                    except Exception as e:
-                        st.error(f"DRT 계산 실패: {e}")
-                st.subheader("Current Live Parameters")
-                st.dataframe(
+                except Exception as e:
+                    st.error(f"DRT 계산 실패: {e}")
+            
+            # --- 💡 들여쓰기를 4칸 당겨서 탭(with t3) 밖으로 빼냅니다 ---
+            st.subheader("Current Live Parameters")
+            st.dataframe(
                 pd.DataFrame(live_dict.items(), columns=["Parameter", "Value"]),
                 use_container_width=True,
                 height=350
-                )
+            )
 
-                with st.expander("Loaded EIS Preview"):
-                    st.dataframe(df_eis, use_container_width=True)
+            with st.expander("Loaded EIS Preview"):
+                st.dataframe(df_eis, use_container_width=True)
 
-        except Exception as e:
-            st.error(f"파일 처리 실패: {e}")
+    except Exception as e:
             # =======================================
 
 
