@@ -84,8 +84,8 @@ def Z_C_1(params, w):
 
 
 def Z_B_1(params, w):
-    C_dl, R_ct, R_int, T_int, P_int, R_sam, T_sam, P_sam, Rs_sol = params
-    Z0 = Z_parallel(Z_C(C_dl, w), Z_R(R_ct, w))
+    CPE_dl_T, CPE_dl_P, R_ct, R_int, T_int, P_int, R_sam, T_sam, P_sam, Rs_sol = params
+    Z0 = Z_parallel(Z_CPE(CPE_dl_T, CPE_dl_P, w), Z_R(R_ct, w))
     Z1 = Z0 + Z_R(R_int, w)
     Z2 = Z_parallel(Z1, Z_CPE(T_int, P_int, w))
     Z3 = Z2 + Z_R(R_sam, w)
@@ -97,9 +97,27 @@ def get_model_info(sam_type):
     sam_type = normalize_sam_name(sam_type)
 
     if sam_type == "B_1":
-        names = ["C_dl", "R_ct", "R_int", "CPE_int_T", "CPE_int_P", "R_sam", "CPE_sam_T", "CPE_sam_P", "Rs_sol"]
-        lower = np.array([1e-12, 1e-6, 1e-6, 1e-12, 0.0, 1e-6, 1e-12, 0.0, 1e-6], dtype=float)
-        upper = np.array([1e-1, 1e12, 1e12, 1e-1, 1.0, 1e12, 1e-1, 1.0, 1e12], dtype=float)
+        names = [
+            "CPE_dl_T", "CPE_dl_P",
+            "R_ct", "R_int",
+            "CPE_int_T", "CPE_int_P",
+            "R_sam", "CPE_sam_T", "CPE_sam_P",
+            "Rs_sol"
+        ]
+        lower = np.array([
+            1e-12, 0.0,
+            1e-6, 1e-6,
+            1e-12, 0.0,
+            1e-6, 1e-12, 0.0,
+            1e-6
+        ], dtype=float)
+        upper = np.array([
+            1e-1, 1.0,
+            1e12, 1e12,
+            1e-1, 1.0,
+            1e12, 1e-1, 1.0,
+            1e12
+        ], dtype=float)
         return names, lower, upper, Z_B_1
 
     names = ["Rs_sol", "W1_Sigma", "C1_inner", "R1_inner", "CPE1_T_outer", "CPE1_P_outer", "R2_interface"]
@@ -227,7 +245,6 @@ def build_initial_guess(freq, zexp, sam_type):
     Rmax = max(float(np.max(zre)), float(np.max(zmag)))
     Rspan = max(1.0, Rmax - Rs_guess)
 
-    # 대표 주파수 기반 rough capacitance estimate
     idx_peak = np.argmax(np.abs(zim))
     f_peak = max(float(freq[idx_peak]), 1e-6)
     w_peak = 2 * np.pi * f_peak
@@ -235,14 +252,10 @@ def build_initial_guess(freq, zexp, sam_type):
 
     if sam_type == "B_1":
         return np.array([
-            C_guess,
-            0.15 * Rspan,
-            0.20 * Rspan,
-            1e-5,
-            0.90,
-            0.45 * Rspan,
-            1e-6,
-            0.85,
+            C_guess, 0.95,
+            0.15 * Rspan, 0.20 * Rspan,
+            1e-5, 0.90,
+            0.45 * Rspan, 1e-6, 0.85,
             Rs_guess
         ], dtype=float)
 
@@ -616,7 +629,6 @@ if uploaded_file:
         names, lb, ub, _ = get_model_info(sam_type)
         default_guess = build_initial_guess(freq, zexp, sam_type)
 
-        # 모델 변경 감지 및 세션 초기화
         if st.session_state.get(f"{file_token}_last_mod") != sam_type:
             st.session_state[f"{file_token}_last_mod"] = sam_type
             for n, v in zip(names, default_guess):
@@ -636,7 +648,6 @@ if uploaded_file:
         if f"{file_token}_wver" not in st.session_state:
             st.session_state[f"{file_token}_wver"] = 0
 
-        # Outlier 설정
         outlier_key = f"{file_token}_{sam_type}_out"
         with st.expander("Outlier 설정"):
             sel_out = st.multiselect(
@@ -681,7 +692,6 @@ if uploaded_file:
                         lo = max(lb[i], val - eps)
                         hi = min(ub[i], val + eps)
 
-                        # 혹시 lo == hi에 가까워지면 아주 작은 틈 부여
                         if hi <= lo:
                             hi = min(ub[i], lo + max(abs(lo) * 1e-9, 1e-15))
                             if hi <= lo:
