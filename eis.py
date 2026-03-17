@@ -1029,6 +1029,19 @@ if uploaded_file:
                     help="값이 작을수록 데이터에 민감하게 반응(노이즈 피크 발생), 클수록 피크가 부드러워집니다."
                 )
 
+                # ==========================================
+                # 🔥 누락되었던 f_fit, z_fit 정의 부분 복구
+                # ==========================================
+                f_fit = freq.copy()
+                z_fit = zexp.copy()
+                if effective_exclude_indices:
+                    mask = np.ones(len(f_fit), dtype=bool)
+                    valid_idx = [i for i in effective_exclude_indices if 0 <= i < len(f_fit)]
+                    mask[valid_idx] = False
+                    f_fit = f_fit[mask]
+                    z_fit = z_fit[mask]
+                # ==========================================
+
                 try:
                     with st.spinner("DRT 연산 중..."):
                         f_drt, gamma, r_inf = compute_drt(f_fit, z_fit, reg_param=reg_lambda)
@@ -1036,49 +1049,48 @@ if uploaded_file:
                         st.pyplot(fig3, use_container_width=True)
                         plt.close(fig3)
                         
-                        # ==========================================
-                        # 🌟 추가된 부분: DRT 피크 면적(저항) 적분 계산
-                        # ==========================================
-                        # X축(주파수)이 오름차순이 되도록 정렬 (적분 오류 방지)
+                        # DRT 피크 면적(저항) 적분 계산
                         sort_idx = np.argsort(f_drt)
                         f_sorted = f_drt[sort_idx]
                         gamma_sorted = gamma[sort_idx]
                         
-                        # 전체 저항(면적) 계산: Integral of gamma w.r.t ln(f)
                         total_area = np.trapz(gamma_sorted, x=np.log(f_sorted))
                         
-                        # 결함 의심 대역 (10^-1 ~ 10^2 Hz) 마스킹 및 면적 계산
                         mask = (f_sorted >= 1e-1) & (f_sorted <= 1e2)
-                        if np.sum(mask) > 1:  # 적분을 위해 점이 2개 이상일 때만 계산
+                        if np.sum(mask) > 1:
                             partial_area = np.trapz(gamma_sorted[mask], x=np.log(f_sorted[mask]))
                         else:
                             partial_area = 0.0
                             
                         # 결과 UI 출력
                         st.write("---")
-                        st.subheader("📊 DRT 피크 면적 분석 (저항 기여도)")
+                        st.subheader("📊 DRT 피크 면적 분석 (결함 대역 평가)")
                         
                         col_a1, col_a2, col_a3 = st.columns(3)
                         col_a1.metric("전체 주파수 면적 (Total R)", f"{total_area:.2f} Ω")
-                        col_a2.metric("10⁻¹ ~ 10² Hz 면적 (Pinhole R)", f"{partial_area:.2f} Ω")
+                        col_a2.metric("10⁻¹ ~ 10² Hz 면적 (Defect R)", f"{partial_area:.2f} Ω")
                         
                         ratio = (partial_area / total_area * 100) if total_area > 0 else 0
                         col_a3.metric("결함 대역 비중", f"{ratio:.1f} %")
                         
-                        # XPS 데이터 기준 판독기
-                        # 기존의 하드코딩된 if ratio > 15.0: 부분을 지우고 아래와 같이 유저 컨트롤로 변경
-
+                        # ==========================================
+                        # 🌟 XPS 캘리브레이션용 동적 임계값 슬라이더
+                        # ==========================================
                         st.write("---")
-                        # 사용자가 XPS 캘리브레이션 결과를 바탕으로 기준을 직접 셋팅
-                        warning_threshold = st.slider("⚠️ 주의 기준 설정 (면적비 %)", 0.0, 50.0, 5.0, 0.5)
-                        danger_threshold = st.slider("🚨 위험 기준 설정 (면적비 %)", 0.0, 100.0, 15.0, 0.5)
+                        st.caption("🔍 **소재별 핀홀 판별 기준 설정 (XPS Ta4f 결과와 교차 검증하여 맞추세요)**")
+                        col_t1, col_t2 = st.columns(2)
+                        with col_t1:
+                            warning_threshold = st.slider("⚠️ 주의(Broadening) 기준 (%)", 0.0, 50.0, 5.0, 0.5)
+                        with col_t2:
+                            danger_threshold = st.slider("🚨 위험(Pinhole) 기준 (%)", 0.0, 100.0, 15.0, 0.5)
 
                         if ratio >= danger_threshold:
                             st.error(f"🚨 **위험 (Pinhole/Defect)**: 면적비가 설정된 위험 기준({danger_threshold}%)을 초과했습니다.")
                         elif ratio >= warning_threshold:
                             st.warning(f"⚠️ **주의 (Broadening)**: 면적비가 주의 구간에 있습니다.")
                         else:
-                            st.success(f"✅ **안전 (Intact SAM)**: 면적비가 기준치({warning_threshold}%) 미만으로 안전합니다.")
+                            st.success(f"✅ **안전 (Intact SAM)**: 면적비가 기준치({warning_threshold}%) 미만으로 방어막이 조밀합니다.")
+                        # ==========================================
                         
                 except Exception as e:
                     st.error(f"DRT 계산 실패: {e}")
