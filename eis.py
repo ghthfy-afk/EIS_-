@@ -957,4 +957,4 @@ else:
         file_name=f"EIS_Batch_{ts}.zip",
         mime="application/zip",
         use_container_width=True
-    )" 이 코드를 유지하되 싱글 및 배치에서 100 Hz 이하 영역을 피팅에서 제외할 수 있도록 옵션 추가. 물리적인 해석의 편리함을 위해. 완료본을 제공해줘
+    )
