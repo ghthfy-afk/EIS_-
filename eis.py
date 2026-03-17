@@ -768,18 +768,17 @@ if uploaded_file is not None:
         sheet_name, df_eis, freq, zexp = read_eis_from_uploaded(uploaded_file)
         sam_guess, substrate_guess, conc_guess = parse_metadata_from_filename(uploaded_file.name)
 
-        sam_display_options = ["B-1", "C-1"]
-        default_idx = 0 if sam_guess != "C_1" else 1
-
         col_meta1, col_meta2, col_meta3, col_meta4 = st.columns(4)
         with col_meta1:
+            # [수정] 모델 선택을 명시적으로 처리
             sam_display = st.selectbox(
-                "SAM",
-                sam_display_options,
-                index=default_idx,
-                key=f"{file_token}_single_sam"
+                "Select Equivalent Circuit Model",
+                ["B-1 (3-tc Nested)", "C-1 (Semi-infinite W)"],
+                index=0 if sam_guess != "C_1" else 1,
+                key=f"{file_token}_model_selector"
             )
-            sam_type = normalize_sam_name(sam_display)
+            # 모델 문자열 정규화 (B_1 또는 C_1)
+            sam_type = "B_1" if "B-1" in sam_display else "C_1"
 
         with col_meta2:
             substrate = st.selectbox(
@@ -810,8 +809,18 @@ if uploaded_file is not None:
         st.write(f"사용 시트: {sheet_name}")
         st.write(f"총 포인트 수: {len(freq)}")
 
-        names, lb, ub, _ = get_model_info(sam_type)
-        default_guess = build_initial_guess(freq, zexp, sam_type)
+        names, lb, ub, model_func = get_model_info(sam_type)
+        
+        # 모델이 변경되었을 경우를 대비해 초기화 체크
+        model_changed_key = f"{file_token}_last_model"
+        if st.session_state.get(model_changed_key) != sam_type:
+            st.session_state[model_changed_key] = sam_type
+            # 모델이 바뀌면 기존 파라미터 값을 초기화
+            default_guess = build_initial_guess(freq, zexp, sam_type)
+            for name, dft in zip(names, default_guess):
+                st.session_state[f"{file_token}_{sam_type}_{name}_val"] = float(dft)
+            st.session_state[f"{file_token}_{sam_type}_current_fit_params"] = default_guess.tolist()
+            st.rerun() # UI 갱신
 
         # 파라미터 상태 초기화
         for name, dft in zip(names, default_guess):
