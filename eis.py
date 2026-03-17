@@ -971,17 +971,36 @@ else:
     col_q1, col_q2 = st.columns([1, 1])
 
     with col_q1:
-        if st.button("Queue 비우기", use_container_width=True):
+        # 버튼 텍스트를 살짝 직관적으로 변경했습니다
+        if st.button("🗑️ 전체 Queue 비우기", use_container_width=True):
             st.session_state["reviewed_batch_items"] = []
             st.rerun()
 
     with col_q2:
         st.write(f"현재 Queue 항목 수: {len(q_items)}")
 
+    # ==========================================
+    # 🌟 새로 추가된 부분: 개별 항목 관리 UI
+    # ==========================================
+    with st.expander("✏️ 큐 개별 항목 관리 (삭제)"):
+        for i, item in enumerate(q_items):
+            col_item, col_btn = st.columns([5, 1])
+            with col_item:
+                # 어떤 항목인지 식별할 수 있도록 파일명, 기판, 모델, 농도를 표기합니다
+                st.write(f"**{i+1}.** {item['Source_File']} | {item['Substrate']}/{item['SAM']} | {item['Concentration_mM']} mM")
+            with col_btn:
+                # 해당 인덱스의 아이템을 pop으로 제거하고 앱을 재시작(rerun)하여 갱신합니다
+                if st.button("❌ 삭제", key=f"del_q_item_{i}"):
+                    st.session_state["reviewed_batch_items"].pop(i)
+                    st.rerun()
+    # ==========================================
+
     ny_p = {}
     bo_p = {}
     su_p = {}
     bny_p = {}
+    
+    # (이하 기존 코드와 완전히 동일하게 이어짐: for idx, item in enumerate(q_items): ...)
 
     for idx, item in enumerate(q_items):
         src_name = sanitize_filename(item["Source_File"])
