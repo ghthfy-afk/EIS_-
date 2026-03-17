@@ -10,7 +10,7 @@ import matplotlib.pyplot as plt
 import streamlit as st
 from scipy.optimize import least_squares, minimize
 
-
+plt.rcParams['axes.unicode_minus'] = False
 # =========================================================
 # 1. 기본 설정
 # =========================================================
@@ -438,7 +438,7 @@ def make_drt_figure(f_drt, gamma, title="DRT Analysis"):
     ax.fill_between(f_drt, gamma, 0, color='purple', alpha=0.2)
     
     ax.set_xlabel("Frequency (Hz)")
-    ax.set_ylabel(r"$\gamma(\tau)$ (ohm)")
+    ax.set_ylabel("DRT Gamma (ohm)")
     ax.set_title(f"DRT | {title}")
     ax.grid(True, which="both", alpha=0.3)
     
