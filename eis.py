@@ -8,7 +8,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import streamlit as st
-from scipy.optimize import least_squares
+from scipy.optimize import least_squares, minimize
 
 
 # =========================================================
@@ -1013,11 +1013,11 @@ if uploaded_file:
                     exclude_indices=effective_exclude_indices
                 )
                 st.pyplot(fig1, use_container_width=True)
-
+                plt.close(fig1)
             with t2:
                 fig2 = make_bode_figure(freq, zexp, live_zfit)
                 st.pyplot(fig2, use_container_width=True)
-
+                plt.close(fig2)
             with t3:
                 st.caption("DRT를 통해 숨겨진 RC 피크(계면의 수)를 확인합니다. 피크가 3개면 B-1 모델, 2개면 C-1 모델에 가깝습니다.")
                 # DRT의 핵심인 정규화 파라미터(lambda) 조절 슬라이더
@@ -1044,6 +1044,7 @@ if uploaded_file:
                         f_drt, gamma, r_inf = compute_drt(f_fit, z_fit, reg_param=reg_lambda)
                         fig3 = make_drt_figure(f_drt, gamma, title=uploaded_file.name)
                         st.pyplot(fig3, use_container_width=True)
+                        plt.close(fig3)
                 except Exception as e:
                     st.error(f"DRT 계산 실패: {e}")
             # =======================================
@@ -1082,11 +1083,11 @@ else:
         for i, item in enumerate(q_items):
             col_item, col_btn = st.columns([5, 1])
             with col_item:
-                # 어떤 항목인지 식별할 수 있도록 파일명, 기판, 모델, 농도를 표기합니다
                 st.write(f"**{i+1}.** {item['Source_File']} | {item['Substrate']}/{item['SAM']} | {item['Concentration_mM']} mM")
             with col_btn:
-                # 해당 인덱스의 아이템을 pop으로 제거하고 앱을 재시작(rerun)하여 갱신합니다
-                if st.button("❌ 삭제", key=f"del_q_item_{i}"):
+                # 🔥 수정: 인덱스와 파일명, 농도를 조합해 절대 안 겹치는 고유 Key 생성
+                btn_key = f"del_{i}_{item['Source_File']}_{item['Concentration_mM']}"
+                if st.button("❌ 삭제", key=btn_key):
                     st.session_state["reviewed_batch_items"].pop(i)
                     st.rerun()
     # ==========================================
