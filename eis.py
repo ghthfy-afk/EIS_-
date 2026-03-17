@@ -1054,11 +1054,11 @@ if uploaded_file:
                         f_sorted = f_drt[sort_idx]
                         gamma_sorted = gamma[sort_idx]
                         
-                        total_area = np.trapz(gamma_sorted, x=np.log(f_sorted))
+                        total_area = np.trapezoid(gamma_sorted, x=np.log(f_sorted))
                         
                         mask = (f_sorted >= 1e-1) & (f_sorted <= 1e2)
                         if np.sum(mask) > 1:
-                            partial_area = np.trapz(gamma_sorted[mask], x=np.log(f_sorted[mask]))
+                            partial_area = np.trapezoid(gamma_sorted[mask], x=np.log(f_sorted[mask]))
                         else:
                             partial_area = 0.0
                             
