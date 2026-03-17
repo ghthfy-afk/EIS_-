@@ -868,79 +868,49 @@ if uploaded_file is not None:
         left, right = st.columns([1.15, 1.85])
 
         with left:
-            st.subheader("Manual Parameters")
-
+            st.subheader("Manual & Interactive Fit")
+    
+            # 1. 현재 세션에 저장된 값을 기반으로 슬라이더 생성
             current_params = []
-            for name, lo, hi in zip(names, lb, ub):
+            locked_indices = [] # 고정할 파라미터 인덱스
+
+            for i, (name, lo, hi) in enumerate(zip(names, lb, ub)):
                 state_key = f"{file_token}_{sam_type}_{name}_val"
-                is_p = "_P" in name
+        
+                col_param, col_lock = st.columns([4, 1])
+                with col_lock:
+                    # 파라미터 고정 체크박스
+                    is_locked = st.checkbox("Fix", key=f"lock_{state_key}")
+        
+                with col_param:
+                    # 슬라이더 값 입력 (생략된 기존 슬라이더 로직...)
+                    val = st.number_input(f"{name}", value=st.session_state[state_key], key=f"input_{state_key}")
+                    st.session_state[state_key] = val
+                    current_params.append(val)
+                    if is_locked:
+                        locked_indices.append(i)
 
-                if is_p:
-                    slider_val = st.slider(
-                        f"{name} slider",
-                        min_value=0.0,
-                        max_value=1.0,
-                        value=float(st.session_state[state_key]),
-                        step=0.01,
-                        key=f"s_{state_key}_v{st.session_state[widget_ver_key]}"
-                    )
-                    st.session_state[state_key] = float(slider_val)
-                else:
-                    e_lo = float(np.log10(max(lo, 1e-12)))
-                    e_hi = float(np.log10(max(hi, 1e12)))
-                    curr_log = float(np.log10(max(st.session_state[state_key], 1e-12)))
-                    slider_val = st.slider(
-                        f"{name} log10",
-                        min_value=e_lo,
-                        max_value=e_hi,
-                        value=float(np.clip(curr_log, e_lo, e_hi)),
-                        step=0.1,
-                        key=f"s_{state_key}_v{st.session_state[widget_ver_key]}"
-                    )
-                    st.session_state[state_key] = float(10 ** slider_val)
+            # 2. Auto Fit 실행 버튼
+            if st.button("🚀 현재 값에서 Auto Fit 시작", type="primary"):
+                # 고정된 파라미터는 범위를 현재값으로 고정하여 전달
+                adj_lb = lb.copy()
+                adj_ub = ub.copy()
+                for idx in locked_indices:
+                    adj_lb[idx] = current_params[idx] * 0.999
+                    adj_ub[idx] = current_params[idx] * 1.001
 
-                input_val = st.number_input(
-                    f"{name} input",
-                    value=float(st.session_state[state_key]),
-                    format="%.6e" if not is_p else "%.4f",
-                    key=f"i_{state_key}_v{st.session_state[widget_ver_key]}"
+               # 현재 슬라이더 값(current_params)을 'x0'로 사용하여 피팅!
+                p_fitted, _, _, _, _ = fit_eis_custom(
+                    freq, zexp, sam_type, 
+                    x0=current_params, # <-- 핵심: 현재 매뉴얼 값을 출발점으로!
+                    bounds=(adj_lb, adj_ub)
                 )
-                st.session_state[state_key] = float(input_val)
-                current_params.append(float(input_val))
-
-            c1, c2 = st.columns(2)
-
-            with c1:
-                if st.button("Manual Fit 반영", use_container_width=True):
-                    st.session_state[fit_state_key] = list(current_params)
-                    st.rerun()
-
-            with c2:
-                    
-                if st.button("Auto Fit 실행", use_container_width=True, type="primary"):
-                     excluded_idx = st.session_state.get(outlier_state_key, [])
-                     p_fitted, _, _, _, _ = fit_eis(
-                          freq, zexp, sam_type, current_params, exclude_indices=excluded_idx
-                     )
-
-                     fitted_list = [float(p_fitted[n]) for n in names]
-
-                     for name, val in zip(names, fitted_list):
-                         state_key = f"{file_token}_{sam_type}_{name}_val"
-                         st.session_state[state_key] = float(val)
-
-                     st.session_state[fit_state_key] = fitted_list
-
-                # 최초 1회에 한해 manual 입력칸/슬라이더를 새 값으로 재생성
-                     auto_applied_key = f"{file_token}_{sam_type}_autofit_applied_once"
-                     if auto_applied_key not in st.session_state:
-                         st.session_state[auto_applied_key] = False
-
-                     if not st.session_state[auto_applied_key]:
-                         st.session_state[widget_ver_key] += 1
-                         st.session_state[auto_applied_key] = True
-
-                     st.rerun()
+        
+                # 피팅 결과를 다시 세션에 저장 (슬라이더가 자동으로 이동함)
+                for n, v in p_fitted.items():
+                    st.session_state[f"{file_token}_{sam_type}_{n}_val"] = v
+        
+                st.rerun()
                 
             if st.button("현재 결과를 Batch Queue에 추가", use_container_width=True):
                 excluded_idx = st.session_state.get(outlier_state_key, [])
