@@ -1066,13 +1066,19 @@ if uploaded_file:
                         col_a3.metric("결함 대역 비중", f"{ratio:.1f} %")
                         
                         # XPS 데이터 기준 판독기
-                        if ratio > 15.0:
-                            st.error("🚨 **위험 (Pinhole/Defect)**: 10⁻¹ ~ 10² Hz 대역의 저항 비중이 매우 높습니다. 방어막에 결함이 발생하여 핀홀을 통한 누설 반응이 지배적입니다.")
-                        elif ratio > 5.0:
-                            st.warning("⚠️ **주의 (Broadening)**: 결함 대역의 비중이 커지고 있습니다. BTA 착물 네트워크가 성글어졌거나 핀홀이 생성되기 시작했을 수 있습니다.")
+                        # 기존의 하드코딩된 if ratio > 15.0: 부분을 지우고 아래와 같이 유저 컨트롤로 변경
+
+                        st.write("---")
+                        # 사용자가 XPS 캘리브레이션 결과를 바탕으로 기준을 직접 셋팅
+                        warning_threshold = st.slider("⚠️ 주의 기준 설정 (면적비 %)", 0.0, 50.0, 5.0, 0.5)
+                        danger_threshold = st.slider("🚨 위험 기준 설정 (면적비 %)", 0.0, 100.0, 15.0, 0.5)
+
+                        if ratio >= danger_threshold:
+                            st.error(f"🚨 **위험 (Pinhole/Defect)**: 면적비가 설정된 위험 기준({danger_threshold}%)을 초과했습니다.")
+                        elif ratio >= warning_threshold:
+                            st.warning(f"⚠️ **주의 (Broadening)**: 면적비가 주의 구간에 있습니다.")
                         else:
-                            st.success("✅ **안전 (Intact SAM)**: 10⁻¹ ~ 10² Hz 대역이 깨끗합니다. 방어막이 조밀(Densely packed)하게 잘 형성되었습니다.")
-                        # ==========================================
+                            st.success(f"✅ **안전 (Intact SAM)**: 면적비가 기준치({warning_threshold}%) 미만으로 안전합니다.")
                         
                 except Exception as e:
                     st.error(f"DRT 계산 실패: {e}")
