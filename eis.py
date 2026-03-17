@@ -1045,8 +1045,8 @@ if uploaded_file:
                         fig3 = make_drt_figure(f_drt, gamma, title=uploaded_file.name)
                         st.pyplot(fig3, use_container_width=True)
                         plt.close(fig3)
-                except Exception as e:
-                    st.error(f"DRT 계산 실패: {e}")
+                    except Exception as e:
+                        st.error(f"DRT 계산 실패: {e}")
                 st.subheader("Current Live Parameters")
                 st.dataframe(
                 pd.DataFrame(live_dict.items(), columns=["Parameter", "Value"]),
