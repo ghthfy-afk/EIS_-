@@ -359,10 +359,72 @@ def evaluate_current_params(freq, zexp, sam_type, params, exclude_indices=None):
 # =========================================================
 # 6. 시각화 함수
 # =========================================================
+def compute_nyquist_limits(zexp_list, zfit_list=None, pad_ratio=0.05):
+    if zfit_list is None:
+        zfit_list = []
+
+    xs = []
+    ys = []
+
+    for z in zexp_list:
+        if z is None or len(z) == 0:
+            continue
+        xs.append(np.asarray(z.real, dtype=float))
+        ys.append(np.asarray(-z.imag, dtype=float))
+
+    for z in zfit_list:
+        if z is None or len(z) == 0:
+            continue
+        xs.append(np.asarray(z.real, dtype=float))
+        ys.append(np.asarray(-z.imag, dtype=float))
+
+    if not xs or not ys:
+        return None
+
+    x_all = np.concatenate(xs)
+    y_all = np.concatenate(ys)
+
+    x_min = float(np.nanmin(x_all))
+    x_max = float(np.nanmax(x_all))
+    y_min = float(np.nanmin(y_all))
+    y_max = float(np.nanmax(y_all))
+
+    if not np.isfinite(x_min) or not np.isfinite(x_max) or not np.isfinite(y_min) or not np.isfinite(y_max):
+        return None
+
+    x_range = max(x_max - x_min, 1.0)
+    y_range = max(y_max - y_min, 1.0)
+    span = max(x_range, y_range)
+
+    pad = span * pad_ratio
+
+    x_center = 0.5 * (x_min + x_max)
+    y_center = 0.5 * (y_min + y_max)
+
+    half_span = 0.5 * span + pad
+
+    xlim = (x_center - half_span, x_center + half_span)
+    ylim = (y_center - half_span, y_center + half_span)
+
+    return xlim, ylim
+
+
+def apply_equal_nyquist_axes(ax, zexp_list, zfit_list=None, pad_ratio=0.05):
+    lims = compute_nyquist_limits(zexp_list, zfit_list=zfit_list, pad_ratio=pad_ratio)
+    if lims is None:
+        return
+
+    xlim, ylim = lims
+    ax.set_xlim(*xlim)
+    ax.set_ylim(*ylim)
+    ax.set_aspect("equal", adjustable="box")
+
+
 def make_nyquist_figure(zexp, zfit, concentration, title="Nyquist Plot", exclude_indices=None):
-    fig, ax = plt.subplots(figsize=(7, 5))
+    fig, ax = plt.subplots(figsize=(7, 7))
 
     mask = np.ones(len(zexp), dtype=bool)
+    valid_idx = []
     if exclude_indices:
         valid_idx = [i for i in exclude_indices if 0 <= i < len(zexp)]
         mask[valid_idx] = False
@@ -380,6 +442,8 @@ def make_nyquist_figure(zexp, zfit, concentration, title="Nyquist Plot", exclude
     ax.set_title(f"{title} | {concentration} mM")
     ax.legend()
     ax.grid(True, alpha=0.3)
+
+    apply_equal_nyquist_axes(ax, [zexp], [zfit], pad_ratio=0.05)
     return fig
 
 
@@ -462,14 +526,24 @@ def make_batch_nyquist_panel_from_queue(queue_items, sam_type, substrate):
     if not filtered:
         return None
 
-    fig, ax = plt.subplots(figsize=(8, 6))
+    fig, ax = plt.subplots(figsize=(8, 8))
+
+    zexp_list = []
+    zfit_list = []
+
     for item in filtered:
         ax.plot(item["zexp"].real, -item["zexp"].imag, "o", alpha=0.4, label=f"{item['Concentration_mM']}mM")
         ax.plot(item["zfit"].real, -item["zfit"].imag, "-", alpha=0.8)
+        zexp_list.append(item["zexp"])
+        zfit_list.append(item["zfit"])
 
     ax.set_title(f"Batch Nyquist: {substrate} / {display_sam_name(sam_type)}")
+    ax.set_xlabel("Zre (ohm)")
+    ax.set_ylabel("-Zim (ohm)")
     ax.legend()
     ax.grid(True, alpha=0.3)
+
+    apply_equal_nyquist_axes(ax, zexp_list, zfit_list, pad_ratio=0.05)
     return fig
 
 
@@ -883,4 +957,4 @@ else:
         file_name=f"EIS_Batch_{ts}.zip",
         mime="application/zip",
         use_container_width=True
-    )
+    )" 이 코드를 유지하되 싱글 및 배치에서 100 Hz 이하 영역을 피팅에서 제외할 수 있도록 옵션 추가. 물리적인 해석의 편리함을 위해. 완료본을 제공해줘
