@@ -809,9 +809,7 @@ if uploaded_file is not None:
         st.write(f"사용 시트: {sheet_name}")
         st.write(f"총 포인트 수: {len(freq)}")
 
-        substrate = st.selectbox("Substrate", ["CU", "CO"], index=0 if substrate_guess != "CO" else 1, key=f"{file_token}_single_sub")
-        concentration = st.number_input("Concentration (mM)", value=float(conc_guess) if conc_guess is not None else 0.0, key=f"{file_token}_single_conc")
-        area_cm2 = st.number_input("Area (cm²)", value=0.14, key=f"{file_token}_single_area")
+
 
         # 1. 모델 정보와 초기 추정치 계산 (항상 수행)
         names, lb, ub, _ = get_model_info(sam_type)
