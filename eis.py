@@ -1033,17 +1033,16 @@ if uploaded_file:
                 plt.close(fig2)
                 
             with t3:
-                st.caption("DRT를 통해 숨겨진 RC 피크(계면의 수)를 확인합니다. 피크가 3개면 B-1 모델, 2개면 C-1 모델에 가깝습니다.")
+                st.caption("DRT 면적(Total R)을 기준으로 ALD 증착 방어 능력을 평가합니다.")
+                
+                # 1. Regularization 설정
                 reg_lambda = st.select_slider(
                     "Regularization Parameter (λ)",
                     options=[1e-5, 1e-4, 5e-4, 1e-3, 5e-3, 1e-2, 1e-1],
-                    value=1e-3,
-                    help="값이 작을수록 데이터에 민감하게 반응(노이즈 피크 발생), 클수록 피크가 부드러워집니다."
+                    value=1e-3
                 )
 
-                # ==========================================
-                # 🔥 누락되었던 f_fit, z_fit 정의 부분 복구
-                # ==========================================
+                # f_fit, z_fit 정의 (이전 복구 코드 유지)
                 f_fit = freq.copy()
                 z_fit = zexp.copy()
                 if effective_exclude_indices:
@@ -1052,7 +1051,6 @@ if uploaded_file:
                     mask[valid_idx] = False
                     f_fit = f_fit[mask]
                     z_fit = z_fit[mask]
-                # ==========================================
 
                 try:
                     with st.spinner("DRT 연산 중..."):
@@ -1061,47 +1059,42 @@ if uploaded_file:
                         st.pyplot(fig3, use_container_width=True)
                         plt.close(fig3)
                         
-                        # DRT 피크 면적(저항) 적분 계산
+                        # DRT 전체 면적(Total R) 적분 계산
                         sort_idx = np.argsort(f_drt)
                         f_sorted = f_drt[sort_idx]
                         gamma_sorted = gamma[sort_idx]
-                        
                         total_area = np.trapezoid(gamma_sorted, x=np.log(f_sorted))
                         
-                        mask = (f_sorted >= 1e1) 
-                        if np.sum(mask) > 1:
-                            partial_area = np.trapezoid(gamma_sorted[mask], x=np.log(f_sorted[mask]))
-                        else:
-                            partial_area = 0.0
-                            
                         # 결과 UI 출력
                         st.write("---")
-                        st.subheader("📊 DRT 피크 면적 분석 (결함 대역 평가)")
+                        st.subheader("🛡️ 증착 방어력 분석 (Total Resistance)")
                         
-                        col_a1, col_a2, col_a3 = st.columns(3)
-                        col_a1.metric("전체 주파수 면적 (Total R)", f"{total_area:.2f} Ω")
-                        col_a2.metric("10⁻¹ ~ 10² Hz 면적 (Defect R)", f"{partial_area:.2f} Ω")
+                        col_m1, col_m2 = st.columns(2)
+                        col_m1.metric("측정된 전체 저항 (Total R)", f"{total_area:.1f} Ω")
                         
-                        ratio = (partial_area / total_area * 100) if total_area > 0 else 0
-                        col_a3.metric("결함 대역 비중", f"{ratio:.1f} %")
-                        
+                        # 소재별 권장 타겟 안내 (가이드라인)
+                        st.info("💡 **권장 Target:** Co 기판(B-1) ≈ 5100 Ω | Cu 기판(B-1) ≈ 2700 Ω")
+
                         # ==========================================
-                        # 🌟 XPS 캘리브레이션용 동적 임계값 슬라이더
+                        # 🎯 전체 저항 기반 동적 임계값 슬라이더
                         # ==========================================
                         st.write("---")
-                        st.caption("🔍 **소재별 핀홀 판별 기준 설정 (XPS Ta4f 결과와 교차 검증하여 맞추세요)**")
+                        st.caption("🔍 **증착 차단 임계값 설정 (Total R 기준)**")
                         col_t1, col_t2 = st.columns(2)
                         with col_t1:
-                            warning_threshold = st.slider("⚠️ 주의(Broadening) 기준 (%)", 0.0, 50.0, 5.0, 0.5)
+                            # 저항이 이 값보다 낮으면 주의
+                            warning_r = st.slider("⚠️ 주의(Warning) 기준 (Ω)", 0, 6000, 2500, 100)
                         with col_t2:
-                            danger_threshold = st.slider("🚨 위험(Pinhole) 기준 (%)", 0.0, 100.0, 15.0, 0.5)
+                            # 저항이 이 값보다 높아야 안전
+                            safe_r = st.slider("✅ 안전(Safe Target) 기준 (Ω)", 0, 6000, 4500, 100)
 
-                        if ratio >= danger_threshold:
-                            st.error(f"🚨 **위험 (Pinhole/Defect)**: 면적비가 설정된 위험 기준({danger_threshold}%)을 초과했습니다.")
-                        elif ratio >= warning_threshold:
-                            st.warning(f"⚠️ **주의 (Broadening)**: 면적비가 주의 구간에 있습니다.")
+                        # 판정 로직 (저항이 높을수록 안전)
+                        if total_area >= safe_r:
+                            st.success(f"✅ **안전 (Stable Blocking)**: 저항이 {safe_r} Ω 이상으로 증착 억제력이 충분할 것으로 예상됩니다.")
+                        elif total_area >= warning_r:
+                            st.warning(f"⚠️ **주의 (Possible Leakage)**: 저항이 주의 구간에 있습니다. 일부 증착(Ta 3~10%) 가능성이 있습니다.")
                         else:
-                            st.success(f"✅ **안전 (Intact SAM)**: 면적비가 기준치({warning_threshold}%) 미만으로 방어막이 조밀합니다.")
+                            st.error(f"🚨 **위험 (Deposition Likely)**: 저항이 너무 낮습니다. 방어막이 뚫려 Ta가 다량 증착될 위험이 큽니다.")
                         # ==========================================
                         
                 except Exception as e:
@@ -1114,7 +1107,38 @@ if uploaded_file:
                 use_container_width=True,
                 height=350
             )
+# ==========================================
+                        # 🔮 [Recipe Optimizer] 예측 섹션 추가
+                        # ==========================================
+                        with st.expander("🔮 **다음 공정 농도 예측 (Recipe Optimizer)**"):
+                            st.write("현재 측정된 저항을 바탕으로, 목표 저항을 달성하기 위한 농도를 제안합니다.")
+                            
+                            sub_type = st.radio("기판 선택", ["Co (B-1)", "Cu (B-1)"], horizontal=True)
+                            
+                            if sub_type == "Co (B-1)":
+                                # Co 모델 파라미터 (우리가 구한 값)
+                                target_r_goal = 5142 
+                                m, c = 1827.6, 3054.4  # 예시 피팅값 (실제 데이터 기반)
+                            else:
+                                # Cu 모델 파라미터 (복원 데이터 기반)
+                                target_r_goal = 2676
+                                m, c = 526.4, 1622.8   # 예시 피팅값 (실제 데이터 기반)
 
+                            target_r = st.number_input("목표 저항 설정 (Ω)", value=target_r_goal, step=100)
+                            
+                            # 역산 로직: log10(conc) = (R - c) / m
+                            try:
+                                pred_log_conc = (target_r - c) / m
+                                pred_conc = 10**pred_log_conc
+                                
+                                st.metric(f"권장 공정 농도 ({sub_type})", f"{pred_conc:.1f} X")
+                                st.caption(f"💡 현재 저항({total_area:.1f} Ω) 대비 목표치({target_r} Ω) 도달을 위한 예측값입니다.")
+                                
+                                if pred_conc > 500:
+                                    st.warning("⚠️ 예측 농도가 너무 높습니다. 해당 기판에는 소재가 적합하지 않거나 모델 외삽 오류일 수 있습니다.")
+                            except:
+                                st.error("계산 범위를 벗어났습니다.")
+            
             with st.expander("Loaded EIS Preview"):
                 st.dataframe(df_eis, use_container_width=True)
 
