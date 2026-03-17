@@ -10,7 +10,7 @@ import matplotlib.pyplot as plt
 import streamlit as st
 from scipy.optimize import least_squares, minimize
 
-plt.rcParams['axes.unicode_minus'] = False
+from matplotlib.ticker import FuncFormatter
 # =========================================================
 # 1. 기본 설정
 # =========================================================
@@ -441,9 +441,11 @@ def make_drt_figure(f_drt, gamma, title="DRT Analysis"):
     ax.set_ylabel("DRT Gamma (ohm)")
     ax.set_title(f"DRT | {title}")
     ax.grid(True, which="both", alpha=0.3)
-    
-    # 고주파가 왼쪽, 저주파가 오른쪽에 오도록 x축 뒤집기 (Bode plot과 방향 일치)
     ax.invert_xaxis()
+    
+    # 🌟 수식 파싱 에러(ParseException) 원천 차단
+    ax.xaxis.set_major_formatter(FuncFormatter(lambda x, pos: f"{x:g}"))
+    
     fig.tight_layout()
     return fig
 # =========================================================
@@ -539,21 +541,31 @@ def make_nyquist_figure(zexp, zfit, concentration, title="Nyquist Plot", exclude
     return fig
 
 
-def make_bode_figure(freq, zexp, zfit, title="Bode Plot"):
+def make_bode_figure(freq, zexp, zfit, title="Bode Plot", z_drt=None):
     fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(7, 7), sharex=True)
 
     ax1.semilogx(freq, np.abs(zexp), "o", label="Exp")
-    ax1.semilogx(freq, np.abs(zfit), "-", label="Fit")
+    ax1.semilogx(freq, np.abs(zfit), "-", color="red", label="Fit (Circuit)")
+    if z_drt is not None:
+        ax1.semilogx(freq, np.abs(z_drt), "--", color="green", label="Fit (DRT)")
+        
     ax1.set_ylabel("|Z| (ohm)")
     ax1.grid(True, which="both", alpha=0.3)
     ax1.legend()
 
     ax2.semilogx(freq, np.degrees(np.angle(zexp)), "o", label="Exp")
-    ax2.semilogx(freq, np.degrees(np.angle(zfit)), "-", label="Fit")
+    ax2.semilogx(freq, np.degrees(np.angle(zfit)), "-", color="red", label="Fit (Circuit)")
+    if z_drt is not None:
+        ax2.semilogx(freq, np.degrees(np.angle(z_drt)), "--", color="green", label="Fit (DRT)")
+        
     ax2.set_xlabel("Freq (Hz)")
     ax2.set_ylabel("Phase (deg)")
     ax2.grid(True, which="both", alpha=0.3)
     ax2.legend()
+
+    # 🌟 수식 파싱 에러(ParseException) 원천 차단
+    ax1.xaxis.set_major_formatter(FuncFormatter(lambda x, pos: f"{x:g}"))
+    ax2.xaxis.set_major_formatter(FuncFormatter(lambda x, pos: f"{x:g}"))
 
     fig.suptitle(title)
     fig.tight_layout()
