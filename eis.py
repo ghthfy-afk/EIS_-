@@ -252,50 +252,51 @@ def residuals(params, w, zexp, model_func):
     return np.concatenate([r_re, r_im])
 
 
-def fit_eis(freq, zexp, sam_type, x0, exclude_indices=None):
+def fit_eis(freq, zexp, sam_type, x0, exclude_indices=None, custom_bounds=None):
+    # 기본 모델 정보 로드
     names, lb, ub, model_func = get_model_info(sam_type)
+    
+    # 만약 사용자가 특정 파라미터를 고정(Lock)하여 custom_bounds를 보냈다면 그것을 사용
+    if custom_bounds is not None:
+        lb, ub = custom_bounds
 
     freq_fit = np.array(freq, dtype=float).copy()
     zexp_fit = np.array(zexp, dtype=np.complex128).copy()
 
     if exclude_indices is not None and len(exclude_indices) > 0:
-        exclude_indices = sorted(set(int(i) for i in exclude_indices if 0 <= int(i) < len(freq_fit)))
         mask = np.ones(len(freq_fit), dtype=bool)
         mask[exclude_indices] = False
         freq_fit = freq_fit[mask]
         zexp_fit = zexp_fit[mask]
 
-    if len(freq_fit) < 5:
-        raise ValueError("제외 후 남은 데이터 포인트가 너무 적습니다. 최소 5개 이상 필요합니다.")
-
     w = 2 * np.pi * freq_fit
-
     x0 = np.array(x0, dtype=float)
-    x0 = np.minimum(np.maximum(x0, lb * 1.001), ub / 1.001)
+    
+    # x0가 bounds를 벗어나지 않도록 클리핑 (에러 방지)
+    x0 = np.minimum(np.maximum(x0, lb * 1.0001), ub / 1.0001)
 
     result = least_squares(
         residuals,
-        x0=x0,
+        x0=x0, # 매뉴얼에서 넘어온 현재 값이 출발점(Seed)이 됨
         bounds=(lb, ub),
         args=(w, zexp_fit, model_func),
         method="trf",
-        max_nfev=30000,
-        xtol=1e-12,
-        ftol=1e-12,
-        gtol=1e-12,
+        max_nfev=20000,
+        xtol=1e-12, ftol=1e-12, gtol=1e-12
     )
 
     p = result.x
+    param_dict = {k: float(v) for k, v in zip(names, p)}
+    
+    # 결과 계산 (기존 로직 유지)
     zfit_full = model_func(p, 2 * np.pi * np.array(freq, dtype=float))
-
     zfit_eval = model_func(p, 2 * np.pi * freq_fit)
     ss_res = np.sum((zfit_eval.real - zexp_fit.real) ** 2 + (zfit_eval.imag - zexp_fit.imag) ** 2)
     zmean = np.mean(zexp_fit)
     ss_tot = np.sum((zexp_fit.real - zmean.real) ** 2 + (zexp_fit.imag - zmean.imag) ** 2)
-    r2 = np.nan if ss_tot <= 0 else 1.0 - ss_res / ss_tot
+    r2 = 1.0 - ss_res / ss_tot if ss_tot > 0 else np.nan
     rmse = float(np.sqrt(np.mean((zfit_eval.real - zexp_fit.real) ** 2 + (zfit_eval.imag - zexp_fit.imag) ** 2)))
 
-    param_dict = {k: float(v) for k, v in zip(names, p)}
     return param_dict, zfit_full, float(r2), rmse, result
 
 
@@ -900,7 +901,7 @@ if uploaded_file is not None:
                     adj_ub[idx] = current_params[idx] * 1.001
 
                # 현재 슬라이더 값(current_params)을 'x0'로 사용하여 피팅!
-                p_fitted, _, _, _, _ = fit_eis_custom(
+                p_fitted, _, _, _, _ = fit_eis(
                     freq, zexp, sam_type, 
                     x0=current_params, # <-- 핵심: 현재 매뉴얼 값을 출발점으로!
                     bounds=(adj_lb, adj_ub)
