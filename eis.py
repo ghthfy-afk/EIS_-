@@ -1001,7 +1001,7 @@ if uploaded_file:
 
             st.subheader(f"Fit Quality (Live) | R²: {live_r2:.4f}, RMSE: {live_rmse:.2e}")
 
-            # ======= 기존 코드 대체/추가 부분 =======
+            # ======= 탭 시작 =======
             t1, t2, t3 = st.tabs(["Nyquist Plot", "Bode Plot", "💡 DRT Analysis"])
 
             with t1:
@@ -1014,14 +1014,14 @@ if uploaded_file:
                 )
                 st.pyplot(fig1, use_container_width=True)
                 plt.close(fig1)
+                
             with t2:
                 fig2 = make_bode_figure(freq, zexp, live_zfit)
                 st.pyplot(fig2, use_container_width=True)
                 plt.close(fig2)
+                
             with t3:
                 st.caption("DRT를 통해 숨겨진 RC 피크(계면의 수)를 확인합니다. 피크가 3개면 B-1 모델, 2개면 C-1 모델에 가깝습니다.")
-                # DRT의 핵심인 정규화 파라미터(lambda) 조절 슬라이더
-                # 너무 작으면 노이즈가 튀고, 너무 크면 피크가 뭉개집니다.
                 reg_lambda = st.select_slider(
                     "Regularization Parameter (λ)",
                     options=[1e-5, 1e-4, 5e-4, 1e-3, 5e-3, 1e-2, 1e-1],
@@ -1029,7 +1029,6 @@ if uploaded_file:
                     help="값이 작을수록 데이터에 민감하게 반응(노이즈 피크 발생), 클수록 피크가 부드러워집니다."
                 )
                 
-                # 아웃라이어가 제외된 데이터로 DRT 수행
                 f_fit = freq.copy()
                 z_fit = zexp.copy()
                 if effective_exclude_indices:
@@ -1048,7 +1047,7 @@ if uploaded_file:
                 except Exception as e:
                     st.error(f"DRT 계산 실패: {e}")
             
-            # --- 💡 들여쓰기를 4칸 당겨서 탭(with t3) 밖으로 빼냅니다 ---
+            # ======= 탭 끝. 들여쓰기를 맞춰 탭 외부로 분리했습니다 =======
             st.subheader("Current Live Parameters")
             st.dataframe(
                 pd.DataFrame(live_dict.items(), columns=["Parameter", "Value"]),
@@ -1060,9 +1059,12 @@ if uploaded_file:
                 st.dataframe(df_eis, use_container_width=True)
 
     except Exception as e:
-            # =======================================
+        st.error(f"파일 처리 실패: {e}")
 
 
+# =========================================================
+# 9. Batch UI
+# =========================================================
 # =========================================================
 # 9. Batch UI
 # =========================================================
