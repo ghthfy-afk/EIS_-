@@ -1108,36 +1108,36 @@ if uploaded_file:
                 height=350
             )
 # ==========================================
-                        # 🔮 [Recipe Optimizer] 예측 섹션 추가
-                        # ==========================================
-                        with st.expander("🔮 **다음 공정 농도 예측 (Recipe Optimizer)**"):
-                            st.write("현재 측정된 저항을 바탕으로, 목표 저항을 달성하기 위한 농도를 제안합니다.")
+            # 🔮 [Recipe Optimizer] 예측 섹션 추가
+            # ==========================================
+            with st.expander("🔮 **다음 공정 농도 예측 (Recipe Optimizer)**"):
+                st.write("현재 측정된 저항을 바탕으로, 목표 저항을 달성하기 위한 농도를 제안합니다.")
                             
-                            sub_type = st.radio("기판 선택", ["Co (B-1)", "Cu (B-1)"], horizontal=True)
+                sub_type = st.radio("기판 선택", ["Co (B-1)", "Cu (B-1)"], horizontal=True)
                             
-                            if sub_type == "Co (B-1)":
+                if sub_type == "Co (B-1)":
                                 # Co 모델 파라미터 (우리가 구한 값)
-                                target_r_goal = 5142 
-                                m, c = 1827.6, 3054.4  # 예시 피팅값 (실제 데이터 기반)
-                            else:
+                    target_r_goal = 5142 
+                    m, c = 1827.6, 3054.4  # 예시 피팅값 (실제 데이터 기반)
+                else:
                                 # Cu 모델 파라미터 (복원 데이터 기반)
-                                target_r_goal = 2676
-                                m, c = 526.4, 1622.8   # 예시 피팅값 (실제 데이터 기반)
+                    target_r_goal = 2676
+                    m, c = 526.4, 1622.8   # 예시 피팅값 (실제 데이터 기반)
 
-                            target_r = st.number_input("목표 저항 설정 (Ω)", value=target_r_goal, step=100)
+                target_r = st.number_input("목표 저항 설정 (Ω)", value=target_r_goal, step=100)
                             
                             # 역산 로직: log10(conc) = (R - c) / m
-                            try:
-                                pred_log_conc = (target_r - c) / m
-                                pred_conc = 10**pred_log_conc
+                try:
+                    pred_log_conc = (target_r - c) / m
+                    pred_conc = 10**pred_log_conc
                                 
-                                st.metric(f"권장 공정 농도 ({sub_type})", f"{pred_conc:.1f} X")
-                                st.caption(f"💡 현재 저항({total_area:.1f} Ω) 대비 목표치({target_r} Ω) 도달을 위한 예측값입니다.")
+                    st.metric(f"권장 공정 농도 ({sub_type})", f"{pred_conc:.1f} X")
+                    st.caption(f"💡 현재 저항({total_area:.1f} Ω) 대비 목표치({target_r} Ω) 도달을 위한 예측값입니다.")
                                 
-                                if pred_conc > 500:
-                                    st.warning("⚠️ 예측 농도가 너무 높습니다. 해당 기판에는 소재가 적합하지 않거나 모델 외삽 오류일 수 있습니다.")
-                            except:
-                                st.error("계산 범위를 벗어났습니다.")
+                    if pred_conc > 500:
+                        st.warning("⚠️ 예측 농도가 너무 높습니다. 해당 기판에는 소재가 적합하지 않거나 모델 외삽 오류일 수 있습니다.")
+                except:
+                    st.error("계산 범위를 벗어났습니다.")
             
             with st.expander("Loaded EIS Preview"):
                 st.dataframe(df_eis, use_container_width=True)
