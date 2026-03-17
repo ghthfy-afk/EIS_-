@@ -270,6 +270,18 @@ def build_initial_guess(freq, zexp, sam_type):
     ], dtype=float)
 
 
+def build_exclude_indices(freq, manual_exclude_indices=None, exclude_below_100hz=False):
+    idx_set = set()
+
+    if manual_exclude_indices:
+        idx_set.update([i for i in manual_exclude_indices if 0 <= i < len(freq)])
+
+    if exclude_below_100hz:
+        idx_set.update(np.where(np.asarray(freq, dtype=float) < 100.0)[0].tolist())
+
+    return sorted(idx_set)
+
+
 def residuals(params, w, zexp, model_func):
     zfit = model_func(params, w)
     scale = np.maximum(np.abs(zexp), 1.0)
@@ -359,7 +371,13 @@ def evaluate_current_params(freq, zexp, sam_type, params, exclude_indices=None):
 # =========================================================
 # 6. 시각화 함수
 # =========================================================
-def compute_nyquist_limits(zexp_list, zfit_list=None, pad_ratio=0.05):
+def compute_nyquist_limits_positive(zexp_list, zfit_list=None, pad_ratio=0.05):
+    """
+    Nyquist plot limits for 1st quadrant only:
+    - x >= 0
+    - y >= 0, where y = -Zim
+    - x/y same upper limit
+    """
     if zfit_list is None:
         zfit_list = []
 
@@ -369,14 +387,26 @@ def compute_nyquist_limits(zexp_list, zfit_list=None, pad_ratio=0.05):
     for z in zexp_list:
         if z is None or len(z) == 0:
             continue
-        xs.append(np.asarray(z.real, dtype=float))
-        ys.append(np.asarray(-z.imag, dtype=float))
+        x = np.asarray(z.real, dtype=float)
+        y = np.asarray(-z.imag, dtype=float)
+        x = x[np.isfinite(x)]
+        y = y[np.isfinite(y)]
+        if x.size > 0:
+            xs.append(x)
+        if y.size > 0:
+            ys.append(y)
 
     for z in zfit_list:
         if z is None or len(z) == 0:
             continue
-        xs.append(np.asarray(z.real, dtype=float))
-        ys.append(np.asarray(-z.imag, dtype=float))
+        x = np.asarray(z.real, dtype=float)
+        y = np.asarray(-z.imag, dtype=float)
+        x = x[np.isfinite(x)]
+        y = y[np.isfinite(y)]
+        if x.size > 0:
+            xs.append(x)
+        if y.size > 0:
+            ys.append(y)
 
     if not xs or not ys:
         return None
@@ -384,33 +414,17 @@ def compute_nyquist_limits(zexp_list, zfit_list=None, pad_ratio=0.05):
     x_all = np.concatenate(xs)
     y_all = np.concatenate(ys)
 
-    x_min = float(np.nanmin(x_all))
-    x_max = float(np.nanmax(x_all))
-    y_min = float(np.nanmin(y_all))
-    y_max = float(np.nanmax(y_all))
+    x_max = max(float(np.nanmax(x_all)), 1.0)
+    y_max = max(float(np.nanmax(y_all)), 1.0)
 
-    if not np.isfinite(x_min) or not np.isfinite(x_max) or not np.isfinite(y_min) or not np.isfinite(y_max):
-        return None
+    upper = max(x_max, y_max)
+    upper = upper * (1.0 + pad_ratio)
 
-    x_range = max(x_max - x_min, 1.0)
-    y_range = max(y_max - y_min, 1.0)
-    span = max(x_range, y_range)
-
-    pad = span * pad_ratio
-
-    x_center = 0.5 * (x_min + x_max)
-    y_center = 0.5 * (y_min + y_max)
-
-    half_span = 0.5 * span + pad
-
-    xlim = (x_center - half_span, x_center + half_span)
-    ylim = (y_center - half_span, y_center + half_span)
-
-    return xlim, ylim
+    return (0.0, upper), (0.0, upper)
 
 
-def apply_equal_nyquist_axes(ax, zexp_list, zfit_list=None, pad_ratio=0.05):
-    lims = compute_nyquist_limits(zexp_list, zfit_list=zfit_list, pad_ratio=pad_ratio)
+def apply_equal_nyquist_axes_positive(ax, zexp_list, zfit_list=None, pad_ratio=0.05):
+    lims = compute_nyquist_limits_positive(zexp_list, zfit_list=zfit_list, pad_ratio=pad_ratio)
     if lims is None:
         return
 
@@ -443,7 +457,7 @@ def make_nyquist_figure(zexp, zfit, concentration, title="Nyquist Plot", exclude
     ax.legend()
     ax.grid(True, alpha=0.3)
 
-    apply_equal_nyquist_axes(ax, [zexp], [zfit], pad_ratio=0.05)
+    apply_equal_nyquist_axes_positive(ax, [zexp], [zfit], pad_ratio=0.05)
     return fig
 
 
@@ -543,7 +557,7 @@ def make_batch_nyquist_panel_from_queue(queue_items, sam_type, substrate):
     ax.legend()
     ax.grid(True, alpha=0.3)
 
-    apply_equal_nyquist_axes(ax, zexp_list, zfit_list, pad_ratio=0.05)
+    apply_equal_nyquist_axes_positive(ax, zexp_list, zfit_list, pad_ratio=0.05)
     return fig
 
 
@@ -558,7 +572,7 @@ def classify_status(cpe_p):
     return "Warning"
 
 
-def build_summary_row(file_name, sheet_name, substrate, sam_type, concentration, area_cm2, param_dict, fit_r2, fit_rmse):
+def build_summary_row(file_name, sheet_name, substrate, sam_type, concentration, area_cm2, param_dict, fit_r2, fit_rmse, excluded_indices, exclude_below_100hz):
     sam_type = normalize_sam_name(sam_type)
 
     row = {
@@ -571,6 +585,8 @@ def build_summary_row(file_name, sheet_name, substrate, sam_type, concentration,
         "Area_cm2": area_cm2,
         "Fit_R2": fit_r2,
         "Fit_RMSE": fit_rmse,
+        "Excluded_Indices": ",".join(map(str, excluded_indices)) if excluded_indices else "",
+        "Exclude_Below_100Hz": bool(exclude_below_100hz),
     }
     row.update(param_dict)
 
@@ -723,6 +739,8 @@ if uploaded_file:
             st.session_state[f"{file_token}_wver"] = 0
 
         outlier_key = f"{file_token}_{sam_type}_out"
+        exclude_lowfreq_key = f"{file_token}_{sam_type}_exclude_below_100hz"
+
         with st.expander("Outlier 설정"):
             sel_out = st.multiselect(
                 "제외 인덱스",
@@ -731,6 +749,18 @@ if uploaded_file:
                 key=f"ms_{outlier_key}"
             )
             st.session_state[outlier_key] = sel_out
+
+            exclude_below_100hz = st.checkbox(
+                "피팅에서 100 Hz 미만 영역 제외",
+                value=st.session_state.get(exclude_lowfreq_key, False),
+                key=exclude_lowfreq_key
+            )
+
+        effective_exclude_indices = build_exclude_indices(
+            freq=freq,
+            manual_exclude_indices=st.session_state.get(outlier_key, []),
+            exclude_below_100hz=st.session_state.get(exclude_lowfreq_key, False)
+        )
 
         left, right = st.columns([1.2, 1.8])
 
@@ -775,6 +805,7 @@ if uploaded_file:
                         curr_ub[i] = hi
 
             st.write("---")
+            st.caption(f"현재 피팅 제외 포인트 수: {len(effective_exclude_indices)}")
 
             if st.button("🚀 현재 값에서 Auto Fit 시작", type="primary", use_container_width=True):
                 try:
@@ -783,7 +814,7 @@ if uploaded_file:
                         zexp=zexp,
                         sam_type=sam_type,
                         x0=curr_params,
-                        exclude_indices=st.session_state.get(outlier_key, []),
+                        exclude_indices=effective_exclude_indices,
                         custom_bounds=(curr_lb, curr_ub)
                     )
 
@@ -805,7 +836,7 @@ if uploaded_file:
                         zexp=zexp,
                         sam_type=sam_type,
                         params=curr_params,
-                        exclude_indices=st.session_state.get(outlier_key, [])
+                        exclude_indices=effective_exclude_indices
                     )
 
                     summary_row = build_summary_row(
@@ -817,7 +848,9 @@ if uploaded_file:
                         area_cm2=area_cm2,
                         param_dict=live_dict,
                         fit_r2=live_r2,
-                        fit_rmse=live_rmse
+                        fit_rmse=live_rmse,
+                        excluded_indices=effective_exclude_indices,
+                        exclude_below_100hz=st.session_state.get(exclude_lowfreq_key, False)
                     )
 
                     pointwise_df = build_pointwise_df(
@@ -837,7 +870,8 @@ if uploaded_file:
                         "Substrate": substrate,
                         "Concentration_mM": concentration,
                         "Area_cm2": area_cm2,
-                        "Excluded_Indices": st.session_state.get(outlier_key, []),
+                        "Excluded_Indices": effective_exclude_indices,
+                        "Exclude_Below_100Hz": st.session_state.get(exclude_lowfreq_key, False),
                         "freq": freq.copy(),
                         "zexp": zexp.copy(),
                         "zfit": live_zfit.copy(),
@@ -857,7 +891,7 @@ if uploaded_file:
                 zexp=zexp,
                 sam_type=sam_type,
                 params=curr_params,
-                exclude_indices=st.session_state.get(outlier_key, [])
+                exclude_indices=effective_exclude_indices
             )
 
             st.subheader(f"Fit Quality (Live) | R²: {live_r2:.4f}, RMSE: {live_rmse:.2e}")
@@ -870,7 +904,7 @@ if uploaded_file:
                     zfit=live_zfit,
                     concentration=concentration,
                     title=f"{uploaded_file.name}",
-                    exclude_indices=st.session_state.get(outlier_key, [])
+                    exclude_indices=effective_exclude_indices
                 )
                 st.pyplot(fig1, use_container_width=True)
 
