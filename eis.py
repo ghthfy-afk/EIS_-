@@ -319,89 +319,89 @@ if uploaded_file:
 
         left, right = st.columns([1.2, 1.8])
         
-                with left:
-                    st.subheader("Manual Parameter Input")
+        with left:
+            st.subheader("Manual Parameter Input")
             
             # 실시간 피드백을 위해 현재 입력된 수치들을 수집할 리스트
-                    curr_params = []
-                    curr_lb, curr_ub = lb.copy(), ub.copy()
+            curr_params = []
+            curr_lb, curr_ub = lb.copy(), ub.copy()
 
             # 파라미터 입력 루프 (슬라이더 제거 버전)
-                    for i, name in enumerate(names):
-                        s_key = f"{file_token}_{sam_type}_{name}_val"
-                        is_p = "_P" in name # CPE 지수 여부 (P는 소수점 4자리, 나머지는 지수 표기)
+            for i, name in enumerate(names):
+                s_key = f"{file_token}_{sam_type}_{name}_val"
+                is_p = "_P" in name # CPE 지수 여부 (P는 소수점 4자리, 나머지는 지수 표기)
                 
-                        col_input, col_fix = st.columns([4, 1])
+                col_input, col_fix = st.columns([4, 1])
                 
-                        with col_fix:
-                            # 특정 파라미터를 고정(Fix)하는 기능
-                            is_locked = st.checkbox("Fix", key=f"fix_{s_key}")
+                with col_fix:
+                    # 특정 파라미터를 고정(Fix)하는 기능
+                    is_locked = st.checkbox("Fix", key=f"fix_{s_key}")
                 
-                        with col_input:
-                            # [슬라이더 제거] 오직 수치 입력창만 사용
-                            # 값을 바꾸면 Streamlit이 자동으로 리런되어 우측 그래프가 즉시 업데이트됩니다.
-                            val = st.number_input(
-                                f"{name}", 
-                                value=float(st.session_state[s_key]), 
-                                format="%.4e" if not is_p else "%.4f",
-                                key=f"in_{s_key}_{st.session_state[f'{file_token}_wver']}"
-                            )
-                    
-                            # 현재 렌더링 세션에서 사용할 값 업데이트
-                            st.session_state[s_key] = val
-                            curr_params.append(val)
-
-                            # Fix 체크 시 오토핏 경계값 제한
-                            if is_locked:
-                                curr_lb[i], curr_ub[i] = val * 0.9999, val * 1.0001
-
-                    st.write("---")
-                    # Auto Fit 버튼 (현재 입력된 curr_params를 초기값으로 사용)
-                    if st.button("🚀 현재 값에서 Auto Fit 시작", type="primary", use_container_width=True):
-                        p_fit, _, _, _, _ = fit_eis(
-                            freq, zexp, sam_type, 
-                            x0=curr_params, # 사용자가 직접 입력한 값이 오토핏의 Seed가 됨
-                            exclude_indices=st.session_state[outlier_state_key], 
-                            custom_bounds=(curr_lb, curr_ub)
-                        )
-                
-                        # 결과를 세션에 저장하고 UI 갱신
-                        for n, v in p_fit.items():
-                            st.session_state[f"{file_token}_{sam_type}_{n}_val"] = v
-                        st.session_state[f"{file_token}_{sam_type}_cur_fit"] = [p_fit[n] for n in names]
-                        st.session_state[f"{file_token}_wver"] += 1 
-                        st.rerun()
-
-                    if st.button("✅ Batch Queue에 결과 추가", use_container_width=True):
-                        # (Batch 저장 로직은 기존과 동일)
-                        pass
-
-                with right:
-                    # 핵심: 세션에 저장된 값이 아닌, '현재 입력창의 리스트(curr_params)'로 실시간 계산
-                    live_dict, live_zfit, live_r2, live_rmse = evaluate_current_params(freq, zexp, sam_type, curr_params)
-            
-                    st.subheader(f"Fit Quality (Live) | R²: {live_r2:.4f}, RMSE: {live_rmse:.2e}")
-                    t1, t2 = st.tabs(["Nyquist Plot", "Bode Plot"])
-            
-                    with t1:
-                        # 입력창 값을 바꿀 때마다 이 그래프가 즉시 다시 그려집니다.
-                        fig1 = make_nyquist_figure(
-                            zexp, live_zfit, concentration, 
-                            title=f"{uploaded_file.name}", 
-                            exclude_indices=st.session_state[outlier_state_key]
-                        )
-                        st.pyplot(fig1, use_container_width=True)
-            
-                    with t2:
-                        fig2 = make_bode_figure(freq, zexp, live_zfit)
-                        st.pyplot(fig2, use_container_width=True)
-
-                    st.subheader("Current Live Parameters")
-                    st.dataframe(
-                        pd.DataFrame(live_dict.items(), columns=["Parameter", "Value"]), 
-                        use_container_width=True,
-                        height=350
+                with col_input:
+                    # [슬라이더 제거] 오직 수치 입력창만 사용
+                    # 값을 바꾸면 Streamlit이 자동으로 리런되어 우측 그래프가 즉시 업데이트됩니다.
+                    val = st.number_input(
+                        f"{name}", 
+                        value=float(st.session_state[s_key]), 
+                        format="%.4e" if not is_p else "%.4f",
+                        key=f"in_{s_key}_{st.session_state[f'{file_token}_wver']}"
                     )
+                    
+                    # 현재 렌더링 세션에서 사용할 값 업데이트
+                    st.session_state[s_key] = val
+                    curr_params.append(val)
+
+                    # Fix 체크 시 오토핏 경계값 제한
+                    if is_locked:
+                        curr_lb[i], curr_ub[i] = val * 0.9999, val * 1.0001
+
+            st.write("---")
+            # Auto Fit 버튼 (현재 입력된 curr_params를 초기값으로 사용)
+            if st.button("🚀 현재 값에서 Auto Fit 시작", type="primary", use_container_width=True):
+                p_fit, _, _, _, _ = fit_eis(
+                    freq, zexp, sam_type, 
+                    x0=curr_params, # 사용자가 직접 입력한 값이 오토핏의 Seed가 됨
+                    exclude_indices=st.session_state[outlier_state_key], 
+                    custom_bounds=(curr_lb, curr_ub)
+                )
+                
+                # 결과를 세션에 저장하고 UI 갱신
+                for n, v in p_fit.items():
+                    st.session_state[f"{file_token}_{sam_type}_{n}_val"] = v
+                st.session_state[f"{file_token}_{sam_type}_cur_fit"] = [p_fit[n] for n in names]
+                st.session_state[f"{file_token}_wver"] += 1 
+                st.rerun()
+
+            if st.button("✅ Batch Queue에 결과 추가", use_container_width=True):
+                # (Batch 저장 로직은 기존과 동일)
+                pass
+
+        with right:
+            # 핵심: 세션에 저장된 값이 아닌, '현재 입력창의 리스트(curr_params)'로 실시간 계산
+            live_dict, live_zfit, live_r2, live_rmse = evaluate_current_params(freq, zexp, sam_type, curr_params)
+            
+            st.subheader(f"Fit Quality (Live) | R²: {live_r2:.4f}, RMSE: {live_rmse:.2e}")
+            t1, t2 = st.tabs(["Nyquist Plot", "Bode Plot"])
+            
+            with t1:
+                # 입력창 값을 바꿀 때마다 이 그래프가 즉시 다시 그려집니다.
+                fig1 = make_nyquist_figure(
+                    zexp, live_zfit, concentration, 
+                    title=f"{uploaded_file.name}", 
+                    exclude_indices=st.session_state[outlier_state_key]
+                )
+                st.pyplot(fig1, use_container_width=True)
+            
+            with t2:
+                fig2 = make_bode_figure(freq, zexp, live_zfit)
+                st.pyplot(fig2, use_container_width=True)
+
+            st.subheader("Current Live Parameters")
+            st.dataframe(
+                pd.DataFrame(live_dict.items(), columns=["Parameter", "Value"]), 
+                use_container_width=True,
+                height=350
+            )
 
 
 # =========================================================
