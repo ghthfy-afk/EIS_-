@@ -506,24 +506,50 @@ def make_summary_plot(df_sum, sam_type, substrate, x_log=False):
     if x_log:
         ax1.set_xscale("log")
 
+    # 1. 선 제거 (fmt="o" 사용)
     ax1.errorbar(
         plot_df["Concentration_mM"],
         plot_df["Total_R_Index_Norm_mean"],
         yerr=plot_df["Total_R_Index_Norm_std"],
-        fmt="o-",
+        fmt="o",
         label="R Index"
     )
 
+    # 각 포인트에 R Index 값 라벨링
+    for _, row in plot_df.iterrows():
+        val = row["Total_R_Index_Norm_mean"]
+        if pd.notna(val):
+            ax1.annotate(f"{val:.2e}",
+                         (row["Concentration_mM"], val),
+                         textcoords="offset points",
+                         xytext=(0, 10), # 점 위쪽으로 배치
+                         ha="center",
+                         fontsize=9)
+
     ax2 = ax1.twinx()
     ax2.set_ylabel("Thickness (nm)", color="red")
+    
+    # 1. 선 제거 (fmt="s" 사용)
     ax2.errorbar(
         plot_df["Concentration_mM"],
         plot_df["Thickness_mean"],
         yerr=plot_df["Thickness_std"],
-        fmt="s-",
+        fmt="s",
         color="red",
         label="Thickness"
     )
+
+    # 각 포인트에 Thickness 값 라벨링
+    for _, row in plot_df.iterrows():
+        val = row["Thickness_mean"]
+        if pd.notna(val):
+            ax2.annotate(f"{val:.1f}",
+                         (row["Concentration_mM"], val),
+                         textcoords="offset points",
+                         xytext=(0, -15), # R Index와 겹치지 않게 점 아래쪽으로 배치
+                         ha="center",
+                         fontsize=9,
+                         color="red")
 
     plt.title(f"Analysis: {substrate} / {display_sam_name(sam_type)}")
     ax1.grid(True, alpha=0.3)
@@ -595,7 +621,8 @@ def build_summary_row(file_name, sheet_name, substrate, sam_type, concentration,
         c_t = row["CPE1_T_outer"]
         c_p = row["CPE1_P_outer"]
     else:
-        r_tot = row["R_ct"] + row["R_int"] + row["R_sam"]
+        # 3. R_ct를 제외하고 방어력에 기여하는 저항만 합산 (R_int + R_sam)
+        r_tot = row["R_int"] + row["R_sam"]
         c_t = row["CPE_sam_T"]
         c_p = row["CPE_sam_P"]
 
