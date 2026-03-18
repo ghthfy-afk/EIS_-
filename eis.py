@@ -8,7 +8,8 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import streamlit as st
-from scipy.optimize import least_squares, minimize
+import plotly.graph_objects as go
+from scipy.optimize import least_squares, minimize, curve_fit
 
 from matplotlib.ticker import FuncFormatter
 # =========================================================
@@ -1107,7 +1108,98 @@ if uploaded_file:
                 use_container_width=True,
                 height=350
             )
-# ==========================================
+            # ==========================================
+
+            # 1. Pseudo-Voigt 함수 정의 (Gaussian + Lorentzian mixing)
+            def pseudo_voigt(x, amp, ctr, fwhm, eta):
+                """
+                eta: Mixing parameter (0: Pure Gaussian, 1: Pure Lorentzian)
+                """
+                sigma = fwhm / (2 * np.sqrt(2 * np.log(2)))
+                gamma = fwhm / 2
+    
+                gauss = np.exp(-(x - ctr)**2 / (2 * sigma**2))
+                lorentz = (gamma**2) / ((x - ctr)**2 + gamma**2)
+    
+                return amp * (eta * lorentz + (1 - eta) * gauss)
+
+            # 2. 멀티 피크 합계 함수
+            def n_peak_model(x, *params):
+                y = np.zeros_like(x)
+                for i in range(0, len(params), 4):
+                    y += pseudo_voigt(x, params[i], params[i+1], params[i+2], params[i+3])
+                return y
+
+            # 3. Streamlit 분석 UI 섹션
+            def render_peak_fitting_section(f_drt, gamma_drt):
+                st.write("---")
+                st.subheader("🧪 XPS-style Peak Deconvolution (Pseudo-Voigt)")
+    
+                # 분석용 로그 스케일 변환 (DRT는 보통 log f 축에서 대칭)
+                log_f = np.log10(f_drt)
+    
+                col1, col2 = st.columns([1, 3])
+    
+                with col1:
+                    num_peaks = st.number_input("분석할 피크 개수", min_value=1, max_value=6, value=3)
+                    st.caption("Tip: 메인 픽 3개 + 핀홀 픽 등을 설정하세요.")
+        
+                    # 피팅 초기값 설정을 위한 UI (사용자 편의성)
+                    init_guesses = []
+                    for i in range(num_peaks):
+                        with st.expander(f"Peak {i+1} 초기값 설정"):
+                            amp = st.number_input(f"Amp {i+1}", value=float(np.max(gamma_drt))/(i+1), key=f"a{i}")
+                            ctr = st.number_input(f"Center (log f) {i+1}", value=float(np.mean(log_f)), key=f"c{i}")
+                            fwhm = st.number_input(f"FWHM {i+1}", value=0.5, key=f"f{i}")
+                            eta = st.slider(f"Mixing (η) {i+1}", 0.0, 1.0, 0.5, key=f"e{i}")
+                            init_guesses.extend([amp, ctr, fwhm, eta])
+
+                if st.button("Run Peak Fitting"):
+                    try:
+                        # Curve Fitting 실행
+                        popt, _ = curve_fit(n_peak_model, log_f, gamma_drt, p0=init_guesses)
+            
+                        # 4. 인터렉티브 플롯 생성 (Plotly)
+                        fig = go.Figure()
+            
+                        # 원본 데이터
+                        fig.add_trace(go.Scatter(x=log_f, y=gamma_drt, name="Original DRT", mode='markers', marker=dict(size=4, color='gray', opacity=0.5)))
+            
+                        # 개별 피크 및 전체 합계 계산
+                        y_total = n_peak_model(log_f, *popt)
+                        fig.add_trace(go.Scatter(x=log_f, y=y_total, name="Total Fit", line=dict(color='black', width=2)))
+            
+                        result_data = []
+                        for i in range(num_peaks):
+                            p = popt[i*4 : (i+1)*4]
+                            y_peak = pseudo_voigt(log_f, *p)
+                            fig.add_trace(go.Scatter(x=log_f, y=y_peak, name=f"Peak {i+1}", fill='tozeroy', opacity=0.3))
+                
+                            # 물리 파라미터 계산
+                            center_f = 10**p[1]
+                            tau = 1 / (2 * np.pi * center_f)
+                            # 유효질량(Effective Mass) 계산식 (임시 계수 적용, 희준님의 수식으로 수정 가능)
+                            # 예: m_eff = k * tau (여기서 k는 확산 및 온도 관련 상수)
+                            eff_mass = tau * 1e6  # (Placeholder: μs 단위를 질량 지표로 가정한 예시)
+                
+                            result_data.append({
+                                "Peak": f"Peak {i+1}",
+                                "Freq (Hz)": f"{center_f:.2e}",
+                                "FWHM (log)": round(p[2], 3),
+                                "Mixing (η)": round(p[3], 3),
+                                "Tau (s)": f"{tau:.2e}",
+                                "Eff. Mass (a.u.)": round(eff_mass, 4)
+                            })
+
+                        fig.update_layout(title="DRT Peak Deconvolution", xaxis_title="log10(Frequency / Hz)", yaxis_title="g(tau)", hovermode="x unified")
+                        st.plotly_chart(fig, use_container_width=True)
+            
+                        # 5. 분석 결과 표 출력
+                        st.write("📊 **Peak Analysis Parameters**")
+                        st.table(pd.DataFrame(result_data))
+            
+                    except Exception as e:
+                        st.error(f"Fitting 실패: 초기값을 다시 설정해주세요. ({e})")
             # 🔮 [Recipe Optimizer] 예측 섹션 추가
             # ==========================================
             with st.expander("🔮 **다음 공정 농도 예측 (Recipe Optimizer)**"):
