@@ -347,7 +347,7 @@ def compute_drt(freq, zexp, reg_param=1e-3, tau_density=3):
     tau_sorted_idx = np.argsort(tau)
     tau_sorted = tau[tau_sorted_idx]
     gamma_sorted = gamma[tau_sorted_idx]
-    total_r = float(np.trapz(gamma_sorted, x=np.log(tau_sorted)))
+    total_r = float(numpy.trapezoid(gamma_sorted, x=np.log(tau_sorted)))
 
     if np.sum(gamma_sorted) > 0:
         ln_tau_char = np.average(np.log(tau_sorted), weights=gamma_sorted + 1e-30)
