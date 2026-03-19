@@ -1131,72 +1131,87 @@ if uploaded_file:
                 return y
 
             # 3. Streamlit 분석 UI 섹션
-            def render_peak_fitting_section(f_drt, gamma_drt):
+            # 3. Streamlit 분석 UI 섹션 (물리적 차원 변환 적용)
+            def render_peak_fitting_section(f_drt, gamma_drt, sam_type, area_cm2):
                 st.write("---")
-                st.subheader("🧪 XPS-style Peak Deconvolution (Pseudo-Voigt)")
+                st.subheader("🧪 XPS-style Peak Deconvolution & Physical Dimensions")
     
-                # 분석용 로그 스케일 변환 (DRT는 보통 log f 축에서 대칭)
                 log_f = np.log10(f_drt)
     
                 col1, col2 = st.columns([1, 3])
     
                 with col1:
                     num_peaks = st.number_input("분석할 피크 개수", min_value=1, max_value=6, value=3)
-                    st.caption("Tip: 메인 픽 3개 + 핀홀 픽 등을 설정하세요.")
+        # 물리량 계산을 위한 Bare 기판 저항 입력
+                    r_bare = st.number_input("Bare 기판 저항 (R_bare, Ω)", value=50.0, step=10.0)
+                    st.caption("Coverage(%) 계산에 사용됩니다.")
         
-                    # 피팅 초기값 설정을 위한 UI (사용자 편의성)
                     init_guesses = []
                     for i in range(num_peaks):
-                        with st.expander(f"Peak {i+1} 초기값 설정"):
+                        with st.expander(f"Peak {i+1} 초기 설정"):
                             amp = st.number_input(f"Amp {i+1}", value=float(np.max(gamma_drt))/(i+1), key=f"a{i}")
                             ctr = st.number_input(f"Center (log f) {i+1}", value=float(np.mean(log_f)), key=f"c{i}")
                             fwhm = st.number_input(f"FWHM {i+1}", value=0.5, key=f"f{i}")
                             eta = st.slider(f"Mixing (η) {i+1}", 0.0, 1.0, 0.5, key=f"e{i}")
                             init_guesses.extend([amp, ctr, fwhm, eta])
 
-                if st.button("Run Peak Fitting"):
+                if st.button("🚀 Run Peak Fitting & Extract Dimensions"):
                     try:
-                        # Curve Fitting 실행
                         popt, _ = curve_fit(n_peak_model, log_f, gamma_drt, p0=init_guesses)
             
-                        # 4. 인터렉티브 플롯 생성 (Plotly)
                         fig = go.Figure()
-            
-                        # 원본 데이터
                         fig.add_trace(go.Scatter(x=log_f, y=gamma_drt, name="Original DRT", mode='markers', marker=dict(size=4, color='gray', opacity=0.5)))
             
-                        # 개별 피크 및 전체 합계 계산
                         y_total = n_peak_model(log_f, *popt)
                         fig.add_trace(go.Scatter(x=log_f, y=y_total, name="Total Fit", line=dict(color='black', width=2)))
             
                         result_data = []
+            
+            # 유전율 설정 (B-1 vs C-1)
+                        e0 = 8.854e-14 # F/cm
+                        er = 2.3 if sam_type == "B_1" else 3.5
+
                         for i in range(num_peaks):
                             p = popt[i*4 : (i+1)*4]
                             y_peak = pseudo_voigt(log_f, *p)
                             fig.add_trace(go.Scatter(x=log_f, y=y_peak, name=f"Peak {i+1}", fill='tozeroy', opacity=0.3))
                 
-                            # 물리 파라미터 계산
+                # [기본 전기적 특성 추출]
                             center_f = 10**p[1]
                             tau = 1 / (2 * np.pi * center_f)
-                            # 유효질량(Effective Mass) 계산식 (임시 계수 적용, 희준님의 수식으로 수정 가능)
-                            # 예: m_eff = k * tau (여기서 k는 확산 및 온도 관련 상수)
-                            eff_mass = tau * 1e6  # (Placeholder: μs 단위를 질량 지표로 가정한 예시)
+                
+                # Pseudo-Voigt 면적 근사: Area ≈ Amp * FWHM * 1.064
+                            r_peak = p[0] * p[2] * 1.064
+                            c_calc = tau / max(r_peak, 1e-12)
+                
+                # [물리적 차원 변환]
+                # 1. 두께 (Thickness, nm)
+                            d_cm = (e0 * er * area_cm2) / max(c_calc, 1e-15)
+                            thickness_nm = d_cm * 1e7
+                
+                # 2. 피복률 (Coverage, %)
+                            coverage = max(0.0, (1.0 - (r_bare / max(r_peak, 1e-12)))) * 100
+                
+                # 3. 겉보기 확산 계수 (Apparent D, cm2/s)
+                            d_app = (d_cm**2) / tau if tau > 0 else 0
                 
                             result_data.append({
                                 "Peak": f"Peak {i+1}",
-                                "Freq (Hz)": f"{center_f:.2e}",
-                                "FWHM (log)": round(p[2], 3),
-                                "Mixing (η)": round(p[3], 3),
-                                "Tau (s)": f"{tau:.2e}",
-                                "Eff. Mass (a.u.)": round(eff_mass, 4)
+                                "Freq (Hz)": f"{center_f:.2f}",
+                                "R (Ω)": f"{r_peak:.1f}",
+                                "C (F)": f"{c_calc:.2e}",
+                                "Thickness (nm)": f"{thickness_nm:.2f}",
+                                "Coverage (%)": f"{coverage:.3f}",
+                                "Apparent D (cm²/s)": f"{d_app:.2e}"
                             })
 
-                        fig.update_layout(title="DRT Peak Deconvolution", xaxis_title="log10(Frequency / Hz)", yaxis_title="g(tau)", hovermode="x unified")
+                        fig.update_layout(title="DRT Peak Deconvolution & Physical Dimensions", xaxis_title="log10(Frequency / Hz)", yaxis_title="g(tau)", hovermode="x unified")
                         st.plotly_chart(fig, use_container_width=True)
             
-                        # 5. 분석 결과 표 출력
-                        st.write("📊 **Peak Analysis Parameters**")
-                        st.table(pd.DataFrame(result_data))
+                        st.write("📊 **Physical Dimension Analysis Parameters**")
+                        st.dataframe(pd.DataFrame(result_data), use_container_width=True)
+            
+                        st.info("💡 **해석 가이드:** 고주파(>10 Hz) 픽의 Coverage는 핀홀이 없는 면적을, 저주파(<1 Hz) 픽의 Thickness는 실제 막/착물의 유효 두께를 나타냅니다.")
             
                     except Exception as e:
                         st.error(f"Fitting 실패: 초기값을 다시 설정해주세요. ({e})")
