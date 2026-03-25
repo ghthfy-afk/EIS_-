@@ -21,7 +21,7 @@ from matplotlib.ticker import FuncFormatter
 # =========================================================
 st.set_page_config(page_title="EIS Interactive Fitter + Batch Review", layout="wide")
 st.title("EIS Interactive / Batch Circuit Fitter")
-st.caption("DRT 선분석 기반 초기값 추천, 수동 보정, 배치 리뷰 및 선택형 export")
+st.caption("연구2팀 KHJ")
 
 ts = datetime.now().strftime("%Y%m%d_%H%M%S")
 E0 = 8.854e-14
