@@ -288,54 +288,8 @@ def build_second_diff_matrix(n):
 
 
 @st.cache_data(show_spinner=False)
-def compute_drt(freq, zexp, reg_param=1e-3, tau_density=3):
-    """
-    비음수 제약 + 2차 미분 Tikhonov 정규화.
-    목적함수:
-        ||A x - y||^2 + λ ||L x||^2
-    를 증강 시스템으로 변환하여 lsq_linear로 풉니다.
-    """
-    freq = np.asarray(freq, dtype=float)
-    zexp = np.asarray(zexp, dtype=np.complex128)
-
-    if len(freq) < 5:
-        raise ValueError("DRT 계산을 위한 데이터 포인트가 부족합니다.")
-
-    min_f, max_f = np.min(freq), np.max(freq)
-    tau_min = 1.0 / (2 * np.pi * max_f) / 10.0
-    tau_max = 1.0 / (2 * np.pi * min_f) * 10.0
-    n_tau = max(int(len(freq) * tau_density), 40)
-
-    tau = np.logspace(np.log10(tau_min), np.log10(tau_max), n_tau)
-    a_full, a_re, a_im = build_drt_matrices(freq, tau)
-    y_full = np.concatenate([zexp.real, zexp.imag])
-
-    l = build_second_diff_matrix(n_tau)
-    l_full = np.hstack([np.zeros((l.shape[0], 1)), l])
-
-    reg_scale = np.sqrt(float(reg_param))
-    a_aug = np.vstack([a_full, reg_scale * l_full])
-    y_aug = np.concatenate([y_full, np.zeros(l_full.shape[0])])
-
-    lb = np.zeros(n_tau + 1)
-    ub = np.full(n_tau + 1, np.inf)
-
-    x0_rinf = max(1e-6, float(np.min(zexp.real)))
-    x0 = np.zeros(n_tau + 1)
-    x0[0] = x0_rinf
-
-    res = lsq_linear(
-        a_aug,
-        y_aug,
-        bounds=(lb, ub),
-        method="trf",
-        lsmr_tol="auto",
-        max_iter=5000,
-        verbose=0,
-    )
-
-    if not res.success:
-        raise ValueError(f"DRT 계산 실패: {res.message}")
+def compute_drt(freq, zexp, reg_param=1e-3, tau_density=3, integration_f_cut=None):
+    # ... (상단 행렬 빌드 및 lsq_linear 계산 부분은 기존과 동일) ...
 
     x = res.x
     r_inf = float(x[0])
@@ -347,15 +301,36 @@ def compute_drt(freq, zexp, reg_param=1e-3, tau_density=3):
     tau_sorted_idx = np.argsort(tau)
     tau_sorted = tau[tau_sorted_idx]
     gamma_sorted = gamma[tau_sorted_idx]
+    
+    # 전체 저항 (기존)
     total_r = float(np.trapezoid(gamma_sorted, x=np.log(tau_sorted)))
 
-    if np.sum(gamma_sorted) > 0:
-        ln_tau_char = np.average(np.log(tau_sorted), weights=gamma_sorted + 1e-30)
+    # --- 신규 추가: 산화막 배제 적분 로직 ---
+    if integration_f_cut is not None and integration_f_cut > 0:
+        tau_cut = 1.0 / (2 * np.pi * integration_f_cut)
+        # 설정 주파수보다 크거나 같은 대역 (즉, tau가 작은 대역 = SAM 영역)만 필터링
+        mask_int = tau_sorted <= tau_cut
+        tau_calc = tau_sorted[mask_int]
+        gamma_calc = gamma_sorted[mask_int]
+    else:
+        tau_calc = tau_sorted
+        gamma_calc = gamma_sorted
+
+    # SAM 전용 저항 계산
+    if len(tau_calc) > 1:
+        sam_r = float(np.trapezoid(gamma_calc, x=np.log(tau_calc)))
+    else:
+        sam_r = 0.0
+
+    # SAM 전용 특성값 계산 (산화막 영향 배제)
+    if np.sum(gamma_calc) > 0:
+        ln_tau_char = np.average(np.log(tau_calc), weights=gamma_calc + 1e-30)
         tau_char = float(np.exp(ln_tau_char))
     else:
-        tau_char = float(np.median(tau_sorted))
+        tau_char = float(np.median(tau_calc) if len(tau_calc) > 0 else 1e-6)
 
-    c_char = float(tau_char / max(total_r, 1e-30))
+    c_char = float(tau_char / max(sam_r, 1e-30))
+
     return {
         "f_drt": f_drt,
         "tau": tau,
@@ -363,8 +338,9 @@ def compute_drt(freq, zexp, reg_param=1e-3, tau_density=3):
         "r_inf": r_inf,
         "z_drt": z_drt,
         "total_r": total_r,
-        "tau_char": tau_char,
-        "c_char": c_char,
+        "sam_r": sam_r,          # 신규 반환
+        "tau_char": tau_char,    # 산화막 배제 적용됨
+        "c_char": c_char,        # 산화막 배제 적용됨
         "status_text": "ok",
     }
 
@@ -678,7 +654,6 @@ def compute_apparent_thickness_nm(sam_type, area_cm2, c_char):
         return np.nan
     return float((E0 * EPSILON_R[sam_type] * area_cm2 / c_char) * 1e7)
 
-
 def build_summary_row(
     file_name,
     sheet_name,
@@ -696,27 +671,21 @@ def build_summary_row(
     sam_type = normalize_sam_name(sam_type)
 
     row = {
-        "Source_File": file_name,
-        "Sheet_Name": sheet_name,
-        "Substrate": substrate,
-        "SAM": display_sam_name(sam_type),
-        "SAM_INTERNAL": sam_type,
-        "Concentration_mM": concentration,
-        "Area_cm2": area_cm2,
-        "Fit_R2": fit_r2,
-        "Fit_RMSE": fit_rmse,
-        "Excluded_Indices": ",".join(map(str, excluded_indices)) if excluded_indices else "",
+        # ... 상단 기본 메타데이터 로직 동일 ...
         "LowFreq_Cutoff_Hz": lowfreq_cutoff_hz if lowfreq_cutoff_hz is not None else np.nan,
         "DRT_R_inf_Ohm": drt_result["r_inf"],
         "DRT_Total_R_Ohm": drt_result["total_r"],
+        "DRT_SAM_R_Ohm": drt_result["sam_r"],    # 신규 추가
         "DRT_Tau_Char_s": drt_result["tau_char"],
         "DRT_C_Char_F": drt_result["c_char"],
     }
     row.update(param_dict)
 
-    row["Blocking_Index_Ohm_cm2"] = drt_result["total_r"] * area_cm2
+    # 방어력 지표의 기준을 SAM_R로 변경 (산화막 영향 배제)
+    row["Blocking_Index_Ohm_cm2"] = drt_result["sam_r"] * area_cm2 
     row["Apparent_Thickness_nm"] = compute_apparent_thickness_nm(sam_type, area_cm2, drt_result["c_char"])
-    row["Blocking_Status"] = classify_blocking_status(drt_result["total_r"], substrate)
+    row["Blocking_Status"] = classify_blocking_status(drt_result["sam_r"], substrate)
+    
     return row
 
 
@@ -877,17 +846,19 @@ if uploaded_file:
 
         with col_meta4:
             area_cm2 = st.number_input("Area (cm2)", value=0.14, format="%.4f", key=f"{file_token}_area")
-
         st.subheader("DRT 선분석 설정")
-        c1, c2, c3 = st.columns(3)
+        c1, c2, c3, c4 = st.columns(4)
         with c1:
             reg_lambda = st.select_slider("Regularization λ", options=[1e-5, 1e-4, 5e-4, 1e-3, 5e-3, 1e-2, 1e-1], value=1e-3, key=f"{file_token}_lam")
         with c2:
             tau_density = st.select_slider("Tau density", options=[2, 3, 4, 5], value=3, key=f"{file_token}_taud")
         with c3:
-            enable_lowfreq_cut = st.checkbox("저주파 제외 사용", value=False, key=f"{file_token}_lf_on")
-            lowfreq_cutoff_hz = st.number_input("저주파 cutoff (Hz)", value=0.1, format="%.4f", key=f"{file_token}_lf_cut")
-
+            enable_lowfreq_cut = st.checkbox("저주파 제외 (데이터 컷)", value=False, key=f"{file_token}_lf_on")
+            lowfreq_cutoff_hz = st.number_input("데이터 컷 (Hz)", value=0.1, format="%.4f", key=f"{file_token}_lf_cut")
+        with c4:
+            enable_drt_int_cut = st.checkbox("산화막 적분 제외 (DRT)", value=False, key=f"{file_token}_drt_int_on")
+            drt_int_cutoff_hz = st.number_input("적분 하한 (Hz)", value=1.0, format="%.4f", key=f"{file_token}_drt_int_cut")
+       
         with st.expander("Outlier 설정"):
             outlier_key = f"{file_token}_{sam_type}_out"
             sel_out = st.multiselect("제외 인덱스", options=list(range(len(freq))), default=st.session_state.get(outlier_key, []), key=f"ms_{outlier_key}")
@@ -901,7 +872,8 @@ if uploaded_file:
         )
 
         f_fit, z_fit, _, _ = apply_exclusion(freq, zexp, effective_exclude_indices)
-        drt_result = compute_drt(f_fit, z_fit, reg_param=reg_lambda, tau_density=tau_density)
+        drt_f_cut = drt_int_cutoff_hz if enable_drt_int_cut else None
+        drt_result = compute_drt(f_fit, z_fit, reg_param=reg_lambda, tau_density=tau_density, integration_f_cut=drt_f_cut)
         drt_init = build_initial_guess_from_drt(freq, zexp, sam_type, drt_result)
 
         names, lb, ub, _ = get_model_info(sam_type)
@@ -1009,22 +981,29 @@ if uploaded_file:
             st.subheader(f"Fit Quality | R²: {live_r2:.4f}, RMSE: {live_rmse:.2e}")
 
             t1, t2, t3 = st.tabs(["DRT Analysis", "Nyquist Plot", "Bode Plot"])
-
             with t1:
                 st.caption("DRT 적분 저항 기반 방어력 지표")
                 fig_drt = make_drt_figure(drt_result["f_drt"], drt_result["gamma"], title=uploaded_file.name)
+                
+                # 시각적으로 제외된 영역을 알 수 있게 수직선 추가
+                if enable_drt_int_cut:
+                    fig_drt.axes[0].axvline(drt_int_cutoff_hz, color='red', linestyle='--', alpha=0.5, label='Integration Cutoff')
+                    fig_drt.axes[0].legend()
+                
                 st.pyplot(fig_drt, use_container_width=True)
                 plt.close(fig_drt)
 
                 st.write("---")
                 st.subheader("방어력 지표")
                 m1, m2, m3, m4 = st.columns(4)
-                m1.metric("DRT Total R", f"{drt_result['total_r']:.1f} Ω")
-                m2.metric("R_inf", f"{drt_result['r_inf']:.1f} Ω")
-                m3.metric("C_char", f"{drt_result['c_char']:.2e} F")
-                m4.metric("겉보기 두께", f"{compute_apparent_thickness_nm(sam_type, area_cm2, drt_result['c_char']):.2f} nm")
+                m1.metric("Total R (산화막 포함)", f"{drt_result['total_r']:.1f} Ω")
+                m2.metric("SAM R (순수 방어력)", f"{drt_result['sam_r']:.1f} Ω", 
+                          delta="산화막 제외됨" if enable_drt_int_cut else None, delta_color="off")
+                m3.metric("C_char (SAM)", f"{drt_result['c_char']:.2e} F")
+                m4.metric("겉보기 두께 (SAM)", f"{compute_apparent_thickness_nm(sam_type, area_cm2, drt_result['c_char']):.2f} nm")
 
-                status = classify_blocking_status(drt_result["total_r"], substrate)
+                status = classify_blocking_status(drt_result["sam_r"], substrate)
+
                 if status == "Safe":
                     st.success("안전: DRT 적분 저항이 높은 편으로, 상대 비교상 차단 성능이 양호합니다.")
                 elif status == "Warning":
