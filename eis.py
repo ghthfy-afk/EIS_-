@@ -290,7 +290,99 @@ def build_second_diff_matrix(n):
 @st.cache_data(show_spinner=False)
 def compute_drt(freq, zexp, reg_param=1e-3, tau_density=3, integration_f_cut=None):
     # ... (상단 행렬 빌드 및 lsq_linear 계산 부분은 기존과 동일) ...
+ """
 
+    비음수 제약 + 2차 미분 Tikhonov 정규화.
+
+    목적함수:
+
+        ||A x - y||^2 + λ ||L x||^2
+
+    를 증강 시스템으로 변환하여 lsq_linear로 풉니다.
+
+    """
+
+    freq = np.asarray(freq, dtype=float)
+
+    zexp = np.asarray(zexp, dtype=np.complex128)
+
+
+
+    if len(freq) < 5:
+
+        raise ValueError("DRT 계산을 위한 데이터 포인트가 부족합니다.")
+
+
+
+    min_f, max_f = np.min(freq), np.max(freq)
+
+    tau_min = 1.0 / (2 * np.pi * max_f) / 10.0
+
+    tau_max = 1.0 / (2 * np.pi * min_f) * 10.0
+
+    n_tau = max(int(len(freq) * tau_density), 40)
+
+
+
+    tau = np.logspace(np.log10(tau_min), np.log10(tau_max), n_tau)
+
+    a_full, a_re, a_im = build_drt_matrices(freq, tau)
+
+    y_full = np.concatenate([zexp.real, zexp.imag])
+
+
+
+    l = build_second_diff_matrix(n_tau)
+
+    l_full = np.hstack([np.zeros((l.shape[0], 1)), l])
+
+
+
+    reg_scale = np.sqrt(float(reg_param))
+
+    a_aug = np.vstack([a_full, reg_scale * l_full])
+
+    y_aug = np.concatenate([y_full, np.zeros(l_full.shape[0])])
+
+
+
+    lb = np.zeros(n_tau + 1)
+
+    ub = np.full(n_tau + 1, np.inf)
+
+
+
+    x0_rinf = max(1e-6, float(np.min(zexp.real)))
+
+    x0 = np.zeros(n_tau + 1)
+
+    x0[0] = x0_rinf
+
+
+
+    res = lsq_linear(
+
+        a_aug,
+
+        y_aug,
+
+        bounds=(lb, ub),
+
+        method="trf",
+
+        lsmr_tol="auto",
+
+        max_iter=5000,
+
+        verbose=0,
+
+    )
+
+
+
+    if not res.success:
+
+        raise ValueError(f"DRT 계산 실패: {res.message}")
     x = res.x
     r_inf = float(x[0])
     gamma = np.maximum(x[1:], 0.0)
